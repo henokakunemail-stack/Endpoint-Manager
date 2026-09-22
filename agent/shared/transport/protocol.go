@@ -15,6 +15,8 @@ const (
 	TypeHeartbeat     = "heartbeat"
 	TypeCommandResult = "command_result"
 	TypeCommand       = "command"
+	TypeInventory     = "inventory"           // agent -> server: collection result
+	TypeInventoryCollect = "inventory.collect" // server -> agent: collect now
 
 	StatusDone   = "done"
 	StatusFailed = "failed"

@@ -17,13 +17,27 @@ import (
 
 // WSHandler upgrades agent connections and drives the per-connection read loop.
 type WSHandler struct {
-	hub       *Hub
-	upgrader  websocket.Upgrader
-	repo      *devicemgmt.Repository
-	db        *sqlx.DB
+	hub          *Hub
+	upgrader     websocket.Upgrader
+	repo         *devicemgmt.Repository
+	db           *sqlx.DB
 	offlineAfter time.Duration
+	// inventory accepts agent collection reports. Optional: nil means reports are
+	// logged and dropped, which keeps Fase 1 deployments working unchanged.
+	inventory InventoryReceiver
+	// setCapabilities stores the capability list advertised in hello.
+	setCapabilities func(ctx context.Context, deviceID, capabilitiesJSON string) error
 }
 
+// InventoryReceiver stores an inventory report. The transport passes raw JSON:
+// decoding into agent types is not possible server-side because those types
+// carry OS build tags, and the server must build on every platform.
+type InventoryReceiver interface {
+	AcceptInventory(ctx context.Context, deviceID string, raw []byte) error
+}
+
+// NewWSHandler builds a handler with no inventory receiver; use
+// (WSHandler).WithInventory to enable Fase 2 collection.
 func NewWSHandler(hub *Hub, repo *devicemgmt.Repository, db *sqlx.DB, offlineAfter time.Duration) *WSHandler {
 	return &WSHandler{
 		hub: hub, repo: repo, db: db, offlineAfter: offlineAfter,
@@ -33,6 +47,23 @@ func NewWSHandler(hub *Hub, repo *devicemgmt.Repository, db *sqlx.DB, offlineAft
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
+}
+
+// WithInventory attaches the Fase 2 inventory receiver so agent collection
+// reports are persisted instead of dropped.
+func (h *WSHandler) WithInventory(r InventoryReceiver) *WSHandler {
+	h.inventory = r
+	if sc, ok := r.(capabilitiesSetter); ok {
+		h.setCapabilities = sc.SetCapabilities
+	}
+	return h
+}
+
+// capabilitiesSetter is implemented by the inventory receiver when it can store
+// the capability list. Discovered by assertion so the Fase 1-only wiring keeps
+// working without it.
+type capabilitiesSetter interface {
+	SetCapabilities(ctx context.Context, deviceID, capabilitiesJSON string) error
 }
 
 // ServeHTTP handles GET /api/agent/connect.
@@ -158,23 +189,40 @@ func (h *WSHandler) readLoop(ctx context.Context, c *Conn, ws *websocket.Conn) {
 			h.handleHeartbeat(ctx, c)
 		case TypeCommandResult:
 			h.handleCommandResult(ctx, c, env)
+		case TypeInventory:
+			h.handleInventory(ctx, c, env)
 		default:
 			log.Warn().Str("device", c.DeviceID).Str("type", env.Type).Msg("unknown message type")
 		}
 	}
 }
 
+// handleInventory stores a collection report. The handler is optional: if the
+// wiring does not provide one, the report is logged and dropped rather than
+// breaking the connection.
+func (h *WSHandler) handleInventory(ctx context.Context, c *Conn, env Envelope) {
+	if h.inventory == nil {
+		log.Debug().Str("device", c.DeviceID).Msg("inventory received but no handler wired")
+		return
+	}
+	payload, _ := json.Marshal(env.Payload)
+	if err := h.inventory.AcceptInventory(ctx, c.DeviceID, payload); err != nil {
+		log.Warn().Err(err).Str("device", c.DeviceID).Msg("accept inventory")
+	}
+}
+
 func (h *WSHandler) handleHello(ctx context.Context, c *Conn, env Envelope) {
 	// The agent sends its osinfo.Info struct flat: {name, version, hostname,
-	// agent_version}. Older payloads nested these under "os"; accept both so a
+	// agent_version, capabilities}. Older payloads omit capabilities, so a
 	// mixed-version fleet does not break the inventory on upgrade.
 	b, _ := json.Marshal(env.Payload)
 	var p struct {
-		AgentVersion string `json:"agent_version"`
-		Name         string `json:"name"`
-		Version      string `json:"version"`
-		Hostname     string `json:"hostname"`
-		OS           *struct {
+		AgentVersion  string   `json:"agent_version"`
+		Name          string   `json:"name"`
+		Version       string   `json:"version"`
+		Hostname      string   `json:"hostname"`
+		Capabilities  []string `json:"capabilities"`
+		OS            *struct {
 			Name    string `json:"name"`
 			Version string `json:"version"`
 		} `json:"os"`
@@ -194,8 +242,14 @@ func (h *WSHandler) handleHello(ctx context.Context, c *Conn, env Envelope) {
 	}
 	_ = h.repo.UpdateOSInfo(ctx, c.DeviceID, version, p.AgentVersion)
 	_ = h.repo.UpdateStatus(ctx, c.DeviceID, devicemgmt.StatusOnline, time.Now().UTC())
+	if h.setCapabilities != nil && len(p.Capabilities) > 0 {
+		if capJSON, err := json.Marshal(p.Capabilities); err == nil {
+			_ = h.setCapabilities(ctx, c.DeviceID, string(capJSON))
+		}
+	}
 	log.Info().Str("device", c.DeviceID).Str("agent", p.AgentVersion).
-		Str("os", name+" "+version).Str("hostname", p.Hostname).Msg("agent hello")
+		Str("os", name+" "+version).Str("hostname", p.Hostname).
+		Int("capabilities", len(p.Capabilities)).Msg("agent hello")
 }
 
 func (h *WSHandler) handleHeartbeat(ctx context.Context, c *Conn) {

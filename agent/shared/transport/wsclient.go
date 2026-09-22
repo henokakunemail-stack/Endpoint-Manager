@@ -15,6 +15,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
+
+	"github.com/endpoint-mgmt/agent/shared/inventory"
 )
 
 // Client is the persistent agent->server connection with automatic reconnect.
@@ -23,10 +25,13 @@ type Client struct {
 	deviceID    string
 	deviceSecret string
 
+	helloExtra any // extra fields merged into the hello message
+
 	mu       sync.Mutex
 	ws       *websocket.Conn
 	closed   bool
 	onCommand func(ctx context.Context, command, id string, payload json.RawMessage) any
+	onCollect func(ctx context.Context)
 }
 
 func NewClient(serverURL, deviceID, deviceSecret string) *Client {
@@ -55,6 +60,10 @@ func wsURL(serverURL string) string {
 func (c *Client) SetCommandHandler(h func(ctx context.Context, command, id string, payload json.RawMessage) any) {
 	c.onCommand = h
 }
+
+// SetHelloExtra merges extra fields into the hello message sent on each connect.
+// Used for the capability advertisement; it must be plain JSON-able data.
+func (c *Client) SetHelloExtra(v any) { c.helloExtra = v }
 
 // Close stops the client. Run blocks until ctx is cancelled or Close is called.
 func (c *Client) Close() {
@@ -130,7 +139,14 @@ func (c *Client) connectAndServe(ctx context.Context, hello any) error {
 		c.mu.Unlock()
 	}()
 
-	if err := c.send(Envelope{Type: TypeHello, Payload: hello}); err != nil {
+	// Hello carries the OS facts plus anything SetHelloExtra added (capabilities).
+	// The merge keeps the server-side hello handler unchanged: it decodes known
+	// fields and ignores the rest.
+	var helloPayload any = hello
+	if c.helloExtra != nil {
+		helloPayload = mergeHello(hello, c.helloExtra)
+	}
+	if err := c.send(Envelope{Type: TypeHello, Payload: helloPayload}); err != nil {
 		return err
 	}
 	log.Info().Str("server", c.serverURL).Msg("connected to server")
@@ -177,18 +193,60 @@ func (c *Client) connectAndServe(ctx context.Context, hello any) error {
 			continue
 		}
 		if env.Type == TypeCommand && c.onCommand != nil {
-			var raw json.RawMessage
-			if env.Payload != nil {
-				raw, _ = json.Marshal(env.Payload)
-			}
-			res := c.onCommand(ctx, env.Command, env.ID, raw)
-			status := StatusDone
-			if res == nil {
-				status = StatusFailed
-			}
-			_ = c.send(Envelope{Type: TypeCommandResult, ID: env.ID, Status: status, Result: res})
+			c.handleCommand(ctx, env)
+		}
+		if env.Type == TypeInventoryCollect && c.onCollect != nil {
+			// On-demand collection: an admin opened the device detail page. Run on
+			// a fresh goroutine so a slow CIM call on Windows cannot stall this
+			// read loop past its read deadline.
+			go c.onCollect(ctx)
 		}
 	}
+}
+
+// handleCommand dispatches one server command and replies with its result.
+func (c *Client) handleCommand(ctx context.Context, env Envelope) {
+	var raw json.RawMessage
+	if env.Payload != nil {
+		raw, _ = json.Marshal(env.Payload)
+	}
+	res := c.onCommand(ctx, env.Command, env.ID, raw)
+	status := StatusDone
+	if res == nil {
+		status = StatusFailed
+	}
+	_ = c.send(Envelope{Type: TypeCommandResult, ID: env.ID, Status: status, Result: res})
+}
+
+// SetCollectHandler installs the callback for the inventory.collect request.
+// The callback performs a collection and reports the result over the socket.
+func (c *Client) SetCollectHandler(h func(ctx context.Context)) {
+	c.onCollect = h
+}
+
+// ReportInventory sends a collected inventory report to the server. The typed
+// signature keeps the client honest about what it ships; the envelope payload is
+// marshalled generically like any other message.
+func (c *Client) ReportInventory(ctx context.Context, rep inventory.Report) error {
+	return c.send(Envelope{Type: TypeInventory, Payload: rep})
+}
+
+// mergeHello combines the OS facts with extra hello fields, extra winning on a
+// key collision (the caller is the agent's own configuration, not the OS).
+func mergeHello(base, extra any) map[string]any {
+	out := map[string]any{}
+	if b, err := json.Marshal(base); err == nil {
+		_ = json.Unmarshal(b, &out)
+	}
+	if e, err := json.Marshal(extra); err == nil {
+		var m map[string]any
+		if err := json.Unmarshal(e, &m); err == nil {
+			for k, v := range m {
+				out[k] = v
+			}
+		}
+	}
+	return out
 }
 
 // Send transmits an envelope to the server.

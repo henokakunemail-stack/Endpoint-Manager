@@ -47,8 +47,11 @@ func (r *Repository) GetByID(ctx context.Context, id string) (Device, error) {
 }
 
 // List returns devices, optionally filtered by status and/or site.
+// Fase 2: retired devices are excluded — they are no longer fleet members, and
+// including them would inflate every dashboard count. Use the audit trail to
+// review retired devices.
 func (r *Repository) List(ctx context.Context, status, site string) ([]Device, error) {
-	q := `SELECT * FROM devices WHERE 1=1`
+	q := `SELECT * FROM devices WHERE retired_at IS NULL`
 	args := []any{}
 	if status != "" {
 		q += ` AND status = ?`

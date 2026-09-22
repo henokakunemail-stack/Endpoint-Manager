@@ -49,6 +49,14 @@ func main() {
 	deviceRepo := devicemgmt.NewRepository(database)
 	hub := transport.NewHub()
 
+	// Fase 2: inventory receiver + HTTP routes. The handler needs the hub both to
+	// answer "is this device online" and to deliver the collect request; the
+	// routes need the real JWT middleware, injected here to avoid a package-level
+	// dependency from the module on the auth service internals.
+	invRepo := devicemgmt.NewInventoryRepository(database)
+	invH := devicemgmt.NewInventoryHandler(invRepo, database, hub).
+		WithAuth(jwtSvc.RequireAuth)
+
 	r := chi.NewRouter()
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "agents_online": hub.Count()})
@@ -62,11 +70,16 @@ func main() {
 	enrollH := devicemgmt.NewEnrollmentHandler(deviceRepo, database)
 	enrollH.Register(r)
 
-	r.Handle("/api/agent/connect", transport.NewWSHandler(hub, deviceRepo, database, cfg.AgentOfflineAfter))
+	r.Handle("/api/agent/connect",
+		transport.NewWSHandler(hub, deviceRepo, database, cfg.AgentOfflineAfter).
+			WithInventory(invH))
 
 	// Device management API (JWT + RBAC).
 	deviceH := devicemgmt.NewHandler(deviceRepo, database, jwtSvc, cfg.EnrollmentTTL)
 	deviceH.Register(r)
+
+	// Fase 2: inventory, device lifecycle and static groups.
+	invH.Register(r)
 
 	// Command dispatch demo endpoint: send "ping" to a device's live connection.
 	r.With(jwtSvc.RequireAuth, rbac.RequireRole(rbac.RoleTechnician)).

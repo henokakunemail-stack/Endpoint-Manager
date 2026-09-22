@@ -15,14 +15,15 @@ import (
 
 // Handler exposes the device-management HTTP API.
 type Handler struct {
-	repo   *Repository
-	db     *sqlx.DB
-	jwt    *auth.JWTService
-	ttl    time.Duration // enrollment token TTL
+	repo     *Repository
+	inventory *inventoryRepository // Fase 2: filters the device list by group
+	db       *sqlx.DB
+	jwt      *auth.JWTService
+	ttl      time.Duration // enrollment token TTL
 }
 
 func NewHandler(repo *Repository, db *sqlx.DB, jwt *auth.JWTService, enrollmentTTL time.Duration) *Handler {
-	return &Handler{repo: repo, db: db, jwt: jwt, ttl: enrollmentTTL}
+	return &Handler{repo: repo, inventory: newInventoryRepository(db), db: db, jwt: jwt, ttl: enrollmentTTL}
 }
 
 // Register mounts routes on the given router. Auth/RBAC middleware must be applied
@@ -48,20 +49,74 @@ type deviceDTO struct {
 	LastSeenAt   *time.Time `json:"last_seen_at"`
 	Site         string     `json:"site"`
 	EnrolledAt   time.Time  `json:"enrolled_at"`
+	RetiredAt    *time.Time `json:"retired_at,omitempty"`
+	// Capabilities is decoded from its stored JSON so the console sees an array,
+	// not a stringified blob.
+	Capabilities []string   `json:"capabilities,omitempty"`
 }
 
 func toDTO(d Device) deviceDTO {
+	var caps []string
+	if d.Capabilities != nil && *d.Capabilities != "" {
+		_ = json.Unmarshal([]byte(*d.Capabilities), &caps)
+	}
 	return deviceDTO{
 		ID: d.ID, Hostname: d.Hostname, OSName: d.OSName, OSVersion: d.OSVersion,
 		AgentVersion: d.AgentVersion, Status: d.Status, LastSeenAt: d.LastSeenAt,
 		Site: d.Site, EnrolledAt: d.EnrolledAt,
+		RetiredAt: d.RetiredAt, Capabilities: caps,
 	}
 }
 
 func (h *Handler) listDevices(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	site := r.URL.Query().Get("site")
+	groupID := r.URL.Query().Get("group_id")
+	limit, offset := pageParams(r)
+
+	// The group filter is inventory-domain knowledge; route it through the
+	// inventory repository rather than duplicating membership SQL here.
+	if groupID != "" {
+		h.listDevicesByGroup(w, r, groupID, limit, offset)
+		return
+	}
+
 	devices, err := h.repo.List(r.Context(), status, site)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	total := len(devices)
+	// Apply the page window in memory: List is a thin Fase 1 query without
+	// LIMIT, and the fleet fits in a single sorted query at this scale. When
+	// device counts reach the tens of thousands, push LIMIT/OFFSET into SQL.
+	if offset >= total {
+		devices = devices[:0]
+	} else if offset+limit > total {
+		devices = devices[offset:]
+	} else {
+		devices = devices[offset : offset+limit]
+	}
+
+	dtos := make([]deviceDTO, 0, len(devices))
+	for _, d := range devices {
+		dtos = append(dtos, toDTO(d))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"devices": dtos, "count": len(dtos), "total": total,
+		"limit": limit, "offset": offset,
+	})
+}
+
+// listDevicesByGroup is the group-filtered variant of listDevices, sharing the
+// response shape so the console can use one component for both lists.
+func (h *Handler) listDevicesByGroup(w http.ResponseWriter, r *http.Request, groupID string, limit, offset int) {
+	total, err := h.inventory.countGroupDevices(r.Context(), groupID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	devices, err := h.inventory.listGroupDevices(r.Context(), groupID, limit, offset)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -70,7 +125,10 @@ func (h *Handler) listDevices(w http.ResponseWriter, r *http.Request) {
 	for _, d := range devices {
 		dtos = append(dtos, toDTO(d))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"devices": dtos, "count": len(dtos)})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"devices": dtos, "count": len(dtos), "total": total,
+		"limit": limit, "offset": offset,
+	})
 }
 
 func (h *Handler) getDevice(w http.ResponseWriter, r *http.Request) {

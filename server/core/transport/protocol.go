@@ -19,9 +19,11 @@ const (
 	TypeHello         = "hello"          // sent right after connect
 	TypeHeartbeat     = "heartbeat"      // periodic keep-alive
 	TypeCommandResult = "command_result" // reply to a server-issued command
+	TypeInventory     = "inventory"      // Fase 2: collection result
 
 	// server -> agent
-	TypeCommand = "command" // ask agent to run something
+	TypeCommand         = "command"           // ask agent to run something
+	TypeInventoryCollect = "inventory.collect" // Fase 2: request collection now
 )
 
 const (
