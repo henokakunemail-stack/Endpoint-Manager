@@ -1,0 +1,224 @@
+package transport
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/jmoiron/sqlx"
+	"github.com/rs/zerolog/log"
+
+	"github.com/endpoint-mgmt/server/core/audit"
+	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
+)
+
+// WSHandler upgrades agent connections and drives the per-connection read loop.
+type WSHandler struct {
+	hub       *Hub
+	upgrader  websocket.Upgrader
+	repo      *devicemgmt.Repository
+	db        *sqlx.DB
+	offlineAfter time.Duration
+}
+
+func NewWSHandler(hub *Hub, repo *devicemgmt.Repository, db *sqlx.DB, offlineAfter time.Duration) *WSHandler {
+	return &WSHandler{
+		hub: hub, repo: repo, db: db, offlineAfter: offlineAfter,
+		upgrader: websocket.Upgrader{
+			// Agents connect from arbitrary networks; origin is not meaningful here.
+			// Authentication is by per-device secret, not CORS.
+			CheckOrigin: func(r *http.Request) bool { return true },
+		},
+	}
+}
+
+// ServeHTTP handles GET /api/agent/connect.
+// Headers: X-Device-Id, X-Device-Secret.
+func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.Header.Get("X-Device-Id")
+	secret := r.Header.Get("X-Device-Secret")
+	if deviceID == "" || secret == "" {
+		http.Error(w, "missing device credentials", http.StatusUnauthorized)
+		return
+	}
+
+	dev, err := h.repo.FindBySecretHash(r.Context(), devicemgmt.HashToken(secret))
+	if err == devicemgmt.ErrNotFound {
+		http.Error(w, "invalid device credentials", http.StatusUnauthorized)
+		return
+	}
+	if err != nil {
+		log.Error().Err(err).Msg("lookup device secret")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if dev.ID != deviceID {
+		// Secret is valid but bound to a different device ID: reject.
+		http.Error(w, "device id mismatch", http.StatusUnauthorized)
+		return
+	}
+
+	ws, err := h.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Error().Err(err).Str("device", deviceID).Msg("ws upgrade")
+		return
+	}
+
+	c := h.hub.Register(deviceID, ws)
+
+	// done is closed by writePump when it stops. The cleanup below waits for
+	// that before closing the socket, so it must exist before the defer runs.
+	done := make(chan struct{})
+
+	defer func() {
+		h.hub.Unregister(c)
+		// Stop the write pump first; once it has exited it is safe to close the
+		// socket. Order matters: closing the socket while writePump may still be
+		// writing would race gorilla's single-writer rule.
+		c.closeSend()
+		<-done
+		_ = ws.Close()
+		// On disconnect the device is offline; last_seen keeps the timestamp.
+		// r.Context() is still live here: the goroutine it guards — this very
+		// handler — has not returned yet, so the DB write is not orphaned.
+		_ = h.repo.UpdateStatus(r.Context(), deviceID, devicemgmt.StatusOffline, time.Now().UTC())
+		_ = audit.Log(r.Context(), h.db, "agent", deviceID, "agent.disconnect", deviceID, nil)
+		log.Info().Str("device", deviceID).Msg("agent disconnected")
+	}()
+
+	// Dead-line + ping/pong keep the disconnect handler responsive. Without it,
+	// a half-open TCP connection (e.g. agent killed mid-session, or a NAT that
+	// silently dropped the flow) would leave the read loop blocked and the
+	// device wrongly "online" until the OS notices — minutes or longer.
+	ws.SetReadLimit(1 << 20) // 1 MiB; larger frames are protocol errors
+	_ = ws.SetReadDeadline(time.Now().Add(h.readDeadline()))
+	go h.pingLoop(c, ws)
+	go c.writePump(done)
+
+	_ = audit.Log(r.Context(), h.db, "agent", deviceID, "agent.connect", deviceID, nil)
+
+	// Mark online as soon as the connection is authenticated.
+	_ = h.repo.UpdateStatus(r.Context(), deviceID, devicemgmt.StatusOnline, time.Now().UTC())
+
+	// readLoop returns when the socket breaks. The deferred closure above then
+	// closes the send channel, waits for writePump to notice, closes the socket
+	// and marks the device offline. Waiting for done *here* as well would
+	// deadlock: closeSend is called from that same closure, which cannot run
+	// while this frame is still blocked.
+	h.readLoop(r.Context(), c, ws)
+}
+
+// readDeadline returns the read timeout used for the agent connection. Chosen
+// relative to the agent heartbeat so a live agent always refreshes it in time.
+func (h *WSHandler) readDeadline() time.Duration {
+	d := h.offlineAfter
+	if d < 30*time.Second {
+		return 30 * time.Second
+	}
+	return d
+}
+
+// pingLoop sends websocket pings so a silently broken connection is detected
+// within roughly one period instead of relying on TCP keepalive.
+func (h *WSHandler) pingLoop(c *Conn, ws *websocket.Conn) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		if err := c.writeControl(websocket.PingMessage); err != nil {
+			return
+		}
+	}
+}
+
+// readLoop handles inbound agent messages until the connection breaks.
+func (h *WSHandler) readLoop(ctx context.Context, c *Conn, ws *websocket.Conn) {
+	// A pong from the agent refreshes the read deadline, proving the
+	// connection is alive without relying on application-level heartbeats alone.
+	ws.SetPongHandler(func(string) error {
+		_ = ws.SetReadDeadline(time.Now().Add(h.readDeadline()))
+		return nil
+	})
+	for {
+		_, data, err := ws.ReadMessage()
+		if err != nil {
+			return // client closed or error
+		}
+		var env Envelope
+		if err := json.Unmarshal(data, &env); err != nil {
+			log.Warn().Str("device", c.DeviceID).Bytes("msg", data).Msg("bad message")
+			continue
+		}
+		switch env.Type {
+		case TypeHello:
+			h.handleHello(ctx, c, env)
+		case TypeHeartbeat:
+			h.handleHeartbeat(ctx, c)
+		case TypeCommandResult:
+			h.handleCommandResult(ctx, c, env)
+		default:
+			log.Warn().Str("device", c.DeviceID).Str("type", env.Type).Msg("unknown message type")
+		}
+	}
+}
+
+func (h *WSHandler) handleHello(ctx context.Context, c *Conn, env Envelope) {
+	// The agent sends its osinfo.Info struct flat: {name, version, hostname,
+	// agent_version}. Older payloads nested these under "os"; accept both so a
+	// mixed-version fleet does not break the inventory on upgrade.
+	b, _ := json.Marshal(env.Payload)
+	var p struct {
+		AgentVersion string `json:"agent_version"`
+		Name         string `json:"name"`
+		Version      string `json:"version"`
+		Hostname     string `json:"hostname"`
+		OS           *struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"os"`
+	}
+	_ = json.Unmarshal(b, &p)
+	name, version := p.Name, p.Version
+	if p.OS != nil {
+		if name == "" {
+			name = p.OS.Name
+		}
+		if version == "" {
+			version = p.OS.Version
+		}
+	}
+	if name == "" {
+		name = "unknown"
+	}
+	_ = h.repo.UpdateOSInfo(ctx, c.DeviceID, version, p.AgentVersion)
+	_ = h.repo.UpdateStatus(ctx, c.DeviceID, devicemgmt.StatusOnline, time.Now().UTC())
+	log.Info().Str("device", c.DeviceID).Str("agent", p.AgentVersion).
+		Str("os", name+" "+version).Str("hostname", p.Hostname).Msg("agent hello")
+}
+
+func (h *WSHandler) handleHeartbeat(ctx context.Context, c *Conn) {
+	_ = h.repo.UpdateStatus(ctx, c.DeviceID, devicemgmt.StatusOnline, time.Now().UTC())
+}
+
+func (h *WSHandler) handleCommandResult(ctx context.Context, c *Conn, env Envelope) {
+	// Fase 1 only records the result; full command tracking comes with the queue.
+	var resultJSON string
+	if env.Result != nil {
+		b, _ := json.Marshal(env.Result)
+		resultJSON = string(b)
+	}
+	status := "done"
+	if env.Status == "failed" {
+		status = "failed"
+	}
+	_, err := h.db.ExecContext(ctx, `
+		UPDATE agent_commands SET status = ?, completed_at = ?, result = ? WHERE id = ?`,
+		status, time.Now().UTC(), resultJSON, env.ID)
+	if err != nil {
+		log.Error().Err(err).Str("device", c.DeviceID).Str("cmd", env.ID).Msg("update command result")
+	}
+}
+
+var _ = sql.ErrNoRows // kept for future repository error mapping

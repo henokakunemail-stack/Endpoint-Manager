@@ -1,0 +1,25 @@
+# Build output
+*.exe
+*.exe~
+emagent-*
+emserver
+emserver.exe
+emagent
+emagent.exe
+
+# Local runtime data (server state must never be committed)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Agent credentials issued during testing
+.env
+*-creds.json
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

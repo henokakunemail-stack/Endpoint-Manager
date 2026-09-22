@@ -1,0 +1,138 @@
+package devicemanagement
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"github.com/jmoiron/sqlx"
+)
+
+// Repository handles device persistence.
+type Repository struct {
+	db *sqlx.DB
+}
+
+func NewRepository(db *sqlx.DB) *Repository {
+	return &Repository{db: db}
+}
+
+// Create inserts a new device.
+func (r *Repository) Create(ctx context.Context, d Device) error {
+	_, err := r.db.NamedExecContext(ctx, `
+		INSERT INTO devices (id, hostname, os_name, os_version, agent_version, status,
+		                     last_seen_at, enrolled_at, enrollment_token_hash,
+		                     device_secret_hash, site, created_at, updated_at)
+		VALUES (:id, :hostname, :os_name, :os_version, :agent_version, :status,
+		        :last_seen_at, :enrolled_at, :enrollment_token_hash,
+		        :device_secret_hash, :site, :created_at, :updated_at)`, d)
+	if err != nil {
+		return fmt.Errorf("create device: %w", err)
+	}
+	return nil
+}
+
+// GetByID loads a device by ID.
+func (r *Repository) GetByID(ctx context.Context, id string) (Device, error) {
+	var d Device
+	err := r.db.GetContext(ctx, &d, `SELECT * FROM devices WHERE id = ?`, id)
+	if err == sql.ErrNoRows {
+		return Device{}, ErrNotFound
+	}
+	if err != nil {
+		return Device{}, fmt.Errorf("get device %s: %w", id, err)
+	}
+	return d, nil
+}
+
+// List returns devices, optionally filtered by status and/or site.
+func (r *Repository) List(ctx context.Context, status, site string) ([]Device, error) {
+	q := `SELECT * FROM devices WHERE 1=1`
+	args := []any{}
+	if status != "" {
+		q += ` AND status = ?`
+		args = append(args, status)
+	}
+	if site != "" {
+		q += ` AND site = ?`
+		args = append(args, site)
+	}
+	q += ` ORDER BY hostname ASC`
+	var devices []Device
+	if err := r.db.SelectContext(ctx, &devices, q, args...); err != nil {
+		return nil, fmt.Errorf("list devices: %w", err)
+	}
+	return devices, nil
+}
+
+// UpdateStatus sets status and last_seen_at.
+func (r *Repository) UpdateStatus(ctx context.Context, id, status string, lastSeen time.Time) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE devices SET status = ?, last_seen_at = ?, updated_at = ? WHERE id = ?`,
+		status, lastSeen, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("update status %s: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateOSInfo stores OS/agent details sent in the agent hello message.
+func (r *Repository) UpdateOSInfo(ctx context.Context, id, osVersion, agentVersion string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE devices SET os_version = ?, agent_version = ?, updated_at = ? WHERE id = ?`,
+		osVersion, agentVersion, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("update os info %s: %w", id, err)
+	}
+	return nil
+}
+
+// ConsumeEnrollmentToken marks the one-time token as used by storing the persistent
+// device secret hash. Returns ErrNotFound if the token hash is not registered.
+func (r *Repository) ConsumeEnrollmentToken(ctx context.Context, tokenHash, secretHash string) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE devices SET device_secret_hash = ?, enrollment_token_hash = NULL,
+		                   status = 'offline', updated_at = ?
+		WHERE enrollment_token_hash = ?`,
+		secretHash, time.Now().UTC(), tokenHash)
+	if err != nil {
+		return fmt.Errorf("consume enrollment token: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// findByEnrollmentTokenHash loads the device waiting on a one-time enrollment token.
+func (r *Repository) findByEnrollmentTokenHash(ctx context.Context, tokenHash string) (Device, error) {
+	var d Device
+	err := r.db.GetContext(ctx, &d, `SELECT * FROM devices WHERE enrollment_token_hash = ?`, tokenHash)
+	if err == sql.ErrNoRows {
+		return Device{}, ErrNotFound
+	}
+	if err != nil {
+		return Device{}, fmt.Errorf("find by enrollment token: %w", err)
+	}
+	return d, nil
+}
+
+// FindBySecretHash looks up a device by its hashed persistent secret.
+// Used to authenticate agent WebSocket connections.
+func (r *Repository) FindBySecretHash(ctx context.Context, secretHash string) (Device, error) {
+	var d Device
+	err := r.db.GetContext(ctx, &d, `SELECT * FROM devices WHERE device_secret_hash = ?`, secretHash)
+	if err == sql.ErrNoRows {
+		return Device{}, ErrNotFound
+	}
+	if err != nil {
+		return Device{}, fmt.Errorf("find by secret: %w", err)
+	}
+	return d, nil
+}
