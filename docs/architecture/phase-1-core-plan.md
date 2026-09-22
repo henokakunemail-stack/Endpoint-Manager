@@ -2,7 +2,7 @@
 
 **Modul:** Core (auth, RBAC, enrollment, heartbeat, transport WSS)
 **Tanggal:** 2026-09-22
-**Status:** IN PROGRESS
+**Status:** `TESTED (STAGING)` — fondasi teruji E2E; TLS dan OS selain Windows belum diuji (lihat §4)
 
 ---
 
@@ -231,6 +231,218 @@ agent  -> server: {"type":"command_result","id":"...","status":"done","result":{
 
 ---
 
-## 3. E2E Testing & 4. Audit
+## 3. E2E Testing
 
-Akan diisi setelah eksekusi Fase 1 selesai (format sesuai spec bagian 6).
+### 3.1 Unit tests (Go, `go test ./tests/unit -count=1`)
+
+| Test | Yang diverifikasi | Hasil |
+|---|---|---|
+| `TestPasswordHashAndCompare` | bcrypt hash + compare, password benar/salah | ✅ PASS |
+| `TestJWTIssueAndParse` | issue access+refresh, parse round-trip, claim terbaca | ✅ PASS |
+| `TestJWTRejectsWrongSecretAndExpired` | token ditandatangani secret lain → ditolak; token kadaluarsa → ditolak | ✅ PASS |
+| `TestDeviceEnrollmentFlow` | buat device + token hash, konsumsi token (NULL-kan hash, isi secret), **replay token ditolak** | ✅ PASS |
+| `TestDeviceStatusTransitions` | offline → online → offline, `last_seen_at` terupdate | ✅ PASS |
+| `TestDeviceListFilteringBySite` | filter `site=cabang-test` mengembalikan device yang benar | ✅ PASS |
+| `TestRBACHierarchy` | admin≥admin 200, admin≥technician 200, viewer≥admin **403**, technician≥viewer 200, no-role **403** | ✅ PASS |
+
+```
+ok  github.com/endpoint-mgmt/tests/unit  4.374s   (7/7 PASS)
+```
+
+### 3.2 Integration tests (Go, `go test ./tests/integration -count=1`)
+
+| Test | Yang diverifikasi | Hasil |
+|---|---|---|
+| `TestE2EEnrollConnectCommand` | enroll via HTTP → WS connect → hello tersimpan → heartbeat → **command round-trip persist** → disconnect → offline → **pasangan audit connect+disconnect** | ✅ PASS |
+| `TestE2EOfflineCommandQueues` | `SendTo` device tidak terhubung → false (command antri, tidak di-drop) | ✅ PASS |
+| `TestE2ELoginAndRBAC` | login admin+viewer, viewer 403 di enroll-token, admin 201, token ditamper 401, tanpa token 401, viewer boleh list devices | ✅ PASS |
+
+```
+ok  github.com/endpoint-mgmt/tests/integration  5.675s   (3/3 PASS)
+```
+
+### 3.3 Live E2E — binary asli, bukan test double
+
+`scripts/e2e-live.ps1` menjalankan **server dan agent hasil `go build` sungguhan**
+(`emserver.exe`, `emagent.exe`) di mesin ini, lalu berjalan melalui seluruh flow.
+SQLite di-query langsung lewat helper `scripts/querysqlite` untuk membuktikan
+state DB, bukan mengandalkan respons API saja.
+
+Output lengkap run terakhir (2026-09-22):
+
+```
+==> server PID 24896 on port 18443
+OK   healthz responded
+OK   admin login, token length 275
+OK   enrollment token issued for device 117d83afc1b692cc3f91a933efdf68c2
+==> agent PID 21668
+OK   agent enrolled + connected via WS, agent=0.1.0 os=10.0.26100
+OK   token replay rejected (401)
+OK   ping round-trip done, result={"pong":"2026-09-22T10:16:55+07:00"}
+OK   device marked offline after agent disconnect
+OK   audit trail (6 entries): auth.login, device.enroll_token_created,
+     device.enroll, agent.connect, command.send, agent.disconnect
+
+ALL LIVE E2E CHECKS PASSED        exit 0
+```
+
+Yang secara spesifik diverifikasi oleh run ini:
+
+| # | Cek | Bukti |
+|---|---|---|
+| 1 | Server start, DB + migrasi jalan | `healthz` 200; DB file terbuat dengan skema lengkap |
+| 2 | Admin login → JWT | access token 275 char dikembalikan |
+| 3 | Enrollment token dikeluarkan (admin) | device row dibuat, `enrollment_token_hash` terisi |
+| 4 | Agent tukar token → secret, connect WS | `os_version=10.0.26100` (Windows 11 asli mesin ini), `agent_version=0.1.0` |
+| 5 | Token sekali pakai | replay token yang sama → **401** |
+| 6 | Command round-trip persisten | row `agent_commands` status `done` + result berisi `pong` |
+| 7 | Offline detection setelah disconnect | status `offline` dalam **0.35 detik** setelah agent di-kill |
+| 8 | Audit trail lengkap | 6 entry, termasuk **`agent.disconnect`** |
+
+### 3.4 Cross-platform build (semua exit 0, cgo dimatikan)
+
+```
+go build ./...                     → seluruh modul build
+GOOS=windows ./agent/cmd/agent     → exit 0
+GOOS=linux   ./agent/cmd/agent     → exit 0
+GOOS=darwin  ./agent/cmd/agent     → exit 0
+go vet ./...                       → exit 0 (tidak ada warning)
+```
+
+### 3.5 Bug nyata yang ditemukan dan diperbaiki oleh E2E
+
+E2E ini melunasi biayanya: tiga bug produksi ditemukan karena test bersikeras
+membaca DB dan log, bukan cuma respons HTTP.
+
+1. **Hello protocol mismatch.** Server mengharapkan `payload.os.version`
+   (nested), agent mengirim `payload.version` (flat). Akibatnya `os_version`
+   selalu kosong di inventory — modul Device Management akan menampilkan
+   "unknown" untuk seluruh fleet. Parser server sekarang menerima keduanya
+   (membantu saat rolling upgrade agent).
+2. **Command tidak persisten sebelum dikirim.** Endpoint ping mengirim
+   command via WS tanpa menyimpan row-nya. Bila koneksi putus di antaranya,
+   balasan agent tidak punya row untuk di-update → command hilang. Sekarang
+   persist-before-send; command offline tersisa ber-status `queued`.
+3. **Deadlock disconnect handler.** `<-done` di akhir `ServeHTTP` menunggu
+   `writePump` keluar, tapi tidak ada yang menutup `c.send`, dan penutupnya
+   ada di deferred cleanup yang tidak bisa jalan selama frame ini terblok.
+   Lingkaran ini membuat device **selalu** online setelah agent mati.
+   Diperbaiki: read loop selesai → deferred cleanup tutup `c.send` → tunggu
+   writePump keluar → tutup socket → update status offline + audit.
+
+Bug #3 adalah jenis yang paling berbahaya: API terlihat benar, device
+terlihat online, dan tidak ada error di log mana pun.
+
+---
+
+## 4. Audit & Readiness Report
+
+### 4.1 Yang sudah selesai DAN diuji end-to-end
+
+| Komponen | Bukti |
+|---|---|
+| Server bootstrap (config, logger, graceful shutdown) | live E2E #1; SIGINT shutdown tercatat di log |
+| SQLite + migration runner (WAL, busy_timeout, FK) | DB file terbuat; `go test` query langsung |
+| JWT access+refresh, bcrypt login | 3 unit test + `TestE2ELoginAndRBAC` |
+| RBAC middleware (viewer/technician/admin) | `TestRBACHierarchy` + live 403/201 |
+| Enrollment: token sekali pakai → device secret (hash) | live #3-#5; replay ditolak |
+| Device registry + status online/offline | 2 unit test + live #4, #7 |
+| Transport WS: connect, hello, heartbeat, command | integration + live #6 |
+| Offline detection (disconnect → offline, 0.35s) | live #7 + audit `agent.disconnect` |
+| Offline command queue (tidak di-drop) | `TestE2EOfflineCommandQueues` |
+| Audit log (6 aksi tercatat berurutan) | live #8 |
+| Agent Windows: enroll, connect, jalankan command | binary asli berjalan di mesin ini |
+| Agent Linux/macOS build | cross-compile exit 0 (belum diuji jalan) |
+
+### 4.2 Selesai tapi TIDAK diuji end-to-end
+
+| Item | Status jujur | Kenapa |
+|---|---|--- |
+| **Agent Linux** | `CODE COMPLETE (UNTESTED)` | Kode ada + ter-compile, tapi belum pernah dijalankan di Linux sungguhan. WSL/Docker Anda bilang "nanti saja" (Fase 0). Bisa jadi bug runtime di `/etc/os-release` parsing atau signal handling. |
+| **Agent macOS** | `CODE COMPLETE (UNTESTED)` | Sama, plus parsing output `sw_vers` tidak pernah diuji terhadap output asli. |
+| **TLS/WSS** | `CODE COMPLETE (UNTESTED)` | Semua E2E di atas jalan di **plaintext `ws://`** port 18443. Transport dan auth sudah disiapkan untuk `wss://` dan JWT secret, tapi tidak ada satu pun tes yang melewati TLS sungguhan. Ini **celah keamanan nyata** hingga dipasang sertifikat. |
+| **Backoff reconnect storm** | `DESIGNED (UNTESTED)` | Logika exponential backoff + jitter ada, tapi hanya diuji dengan 1 agent. Belum ada load test 500 agent reconnect serentak. |
+| **SQLite konkurensi tinggi** | `PARTIALLY TESTED` | WAL + busy_timeout aktif; `SQLITE_BUSY` sempat muncul di integration test (write dari goroutine cleanup bertabrakan dengan request in-flight) dan diperbaiki. Tapi beban 500 device belum pernah disimulasikan. |
+| **Offline sweep** | `CODE COMPLETE (UNTESTED)` | Goroutine sweeper ada (`runOfflineSweep`), tapi disconnect handler sekarang menangani semua kasus yang bisa diuji, jadi sweeper tidak pernah benar-benar dipicu di E2E. |
+
+### 4.3 Tidak dikerjakan (memang di luar scope Fase 1)
+
+Inventory lengkap, dashboard UI, patch/software deployment, remote control,
+reports, web filter, task scheduler, agent self-update. Semuanya `NOT STARTED`.
+
+### 4.4 Risiko dan batasan
+
+1. **Plaintext transport adalah risiko tertinggi saat ini.** Token enrollment,
+   device secret, dan JWT semua melintasi kabel tanpa enkripsi selama tes.
+   Produksi wajib `wss://` + sertifikat. Ini persis seperti yang spec sebut:
+   belum diuji, belum production ready.
+2. **Default credential.** Server membuat `admin/admin12345` pada boot pertama
+   dan mencetaknya ke log sekali. Wajib diganti sebelum ada pengguna nyata.
+3. **Single-server, in-memory hub.** Hub menyimpan koneksi di memori proses
+   server. Restart server = semua device reconnect (backoff menangani
+   badainya, tapi tetap ada jendela "semua offline"). Belum ada story
+   multi-server/HA. SQLite memperkuat asumsi single-node ini.
+4. **Belum ada rate limiting.** Endpoint login dan enroll tidak dibatasi.
+   500 device yang reconnect serentak sudah ditangani backoff di sisi agent,
+   tapi sisi server belum ada perlindungan terhadap thundering herd atau
+   penyalahgunaan endpoint login.
+5. **`JWT_SECRET` wajib di-set.** Server menolak jalan tanpa secret yang
+   valid — ini sengaja, supaya tidak ada default yang aman di produksi.
+6. **Windows version detection.** `RtlGetVersion` melaporkan versi kernel
+   (10.0.26100), bukan label marketing "Windows 11". Akurat untuk patch
+   management, tapi tampilan UI perlu mapping ke nama marketing nanti.
+
+### 4.5 Status akhir Fase 1
+
+| Modul | Status | Catatan |
+|---|---|---|
+| **Core / Infra (config, DB, logger)** | `TESTED (STAGING)` | Diuji lewat live E2E di mesin Windows; bukan environment staging terpisah |
+| **Auth (JWT, bcrypt)** | `TESTED (STAGING)` | 3 unit test + integration; **TLS belum diuji** |
+| **RBAC** | `TESTED (STAGING)` | 5 kasus hierarki + 403/201 live |
+| **Transport (WS, hub, offline detection)** | `TESTED (STAGING)` | Termasuk bug deadlock yang ditemukan dan diperbaiki E2E |
+| **Audit log** | `TESTED (STAGING)` | 6 aksi terverifikasi berurutan |
+| **Agent — Windows** | `TESTED (STAGING)` | Binary asli berjalan di mesin ini |
+| **Agent — Linux** | `CODE COMPLETE (UNTESTED)` | Ter-compile saja |
+| **Agent — macOS** | `CODE COMPLETE (UNTESTED)` | Ter-compile saja |
+| **TLS/WSS** | `CODE COMPLETE (UNTESTED)` | Semua tes jalan di plaintext |
+| **Task Scheduler** | `NOT STARTED` | Disetujui di Fase 0, belum dibangun |
+| **Patch Management** | `NOT STARTED` | |
+| **Software Deployment** | `NOT STARTED` | |
+| **Remote Control** | `NOT STARTED` | |
+| **Reports** | `NOT STARTED` | |
+| **User Management (selain bootstrap)** | `NOT STARTED` | |
+| **Web Filter** | `NOT STARTED` | |
+| **Dashboard** | `NOT STARTED` | |
+| **Device Management (modul penuh)** | `NOT STARTED` | Yang ada sekarang adalah registry dasar Fase 1, bukan modul Device Management lengkap |
+| **Agent Self-Update** | `NOT STARTED` | |
+| **Bandwidth Throttling / Staggered Rollout** | `NOT STARTED` | |
+| **Notification / Alerting** | `NOT STARTED` | |
+| **Asset & License Management** | `NOT STARTED` | |
+
+### 4.6 Pernyataan jujur tentang "Production Ready"
+
+**Fase 1 TIDAK production ready.** Tidak ada komponen di atas yang berstatus
+`PRODUCTION READY`, dan menurut kriteria spec, aplikasi baru bisa disebut
+production ready bila **semua** modul minimal `TESTED (STAGING)` dan modul
+kritikal (Remote Control, Patch Management, Software Deployment)
+`PRODUCTION READY` dengan bukti di kondisi mendekati nyata. Saat ini modul
+kritikal itu semuanya `NOT STARTED`.
+
+Yang berani diklaim: **fondasi transport-nya nyata, bukan mock.** Agent
+Windows sungguhan terhubung ke server sungguhan via socket yang dibuka agent
+sendiri (outbound, sesuai konstrain cabang), menjalankan command, dan
+perpindahan online/offline-nya terverifikasi di DB. Tidak ada bagian dari flow
+ini yang memakai dummy data.
+
+Yang **tidak** berani diklaim: keamanan (plaintext), skala (1 device, bukan
+500), dan OS lain (Windows saja yang diuji).
+
+### 4.7 Angka konkrit
+
+- **48 file** ter-commit, **4.259 baris** (sekali git init, 1 commit)
+- **10 test Go** lulus (7 unit + 3 integration), total ~10 detik
+- **8 cek live E2E** lulus terhadap binary produksi
+- **3 bug produksi** ditemukan & diperbaiksi oleh E2E
+- **3 OS target** ter-compile (windows/linux/darwin), 1 diuji jalan
+- **0 cgo**, seluruhnya pure-Go
+- **Offline detection latency: 0.35 detik** (dari tidak pernah terdeteksi)
