@@ -146,15 +146,19 @@ func (c *macCollector) collectDisks() []inventory.Disk {
 	}
 	var disks []inventory.Disk
 	for _, line := range strings.Split(string(out), "\n") {
-		// device on /mount/point (filesystem, ...)
-		if !strings.Contains(line, " on ") {
+		// macOS mount output: "/dev/disk1s1 on /Volumes/My Drive (apfs, local, journaled)"
+		// The mountpoint sits between " on " and the last " (" before the options.
+		onIdx := strings.Index(line, " on ")
+		if onIdx < 0 {
 			continue
 		}
-		fields := strings.SplitN(line, " ", 4)
-		if len(fields) < 3 || fields[1] != "on" {
+		rest := line[onIdx+4:] // everything after " on "
+		// Find the options parenthesis — it's the last " (" in the remainder.
+		parenIdx := strings.LastIndex(rest, " (")
+		if parenIdx < 0 {
 			continue
 		}
-		mountpoint := fields[2]
+		mountpoint := rest[:parenIdx]
 
 		var st syscall.Statfs_t
 		if err := syscall.Statfs(mountpoint, &st); err != nil {

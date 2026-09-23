@@ -171,7 +171,7 @@ func (c *linuxCollector) collectDisks() []inventory.Disk {
 	}
 	defer f.Close()
 
-	var disks []Disk
+	var disks []inventory.Disk
 	s := bufio.NewScanner(f)
 	s.Buffer(make([]byte, 0, 4096), 256*1024)
 	for s.Scan() {
@@ -272,6 +272,9 @@ func (c *linuxCollector) collectOSDetail() inventory.OSDetail {
 }
 
 // utsString converts a fixed-size [65]int8 array from uname to a Go string.
+// syscall.Utsname fields are [65]int8 on all current Linux GOARCH values
+// (verified amd64 and arm64 in Go 1.26). The int8→byte cast is safe because
+// the values are ASCII characters (0-127).
 func utsString(b [65]int8) string {
 	out := make([]byte, 0, len(b))
 	for _, c := range b {
@@ -305,12 +308,13 @@ func parseDpkgStatus() []inventory.Software {
 	var out []inventory.Software
 	var cur inventory.Software
 	have := false
+	installed := false // tracks whether the package's Status says "installed"
 
 	flush := func() {
-		if have && cur.Name != "" {
+		if have && cur.Name != "" && installed {
 			out = append(out, cur)
 		}
-		cur, have = inventory.Software{}, false
+		cur, have, installed = inventory.Software{}, false, false
 	}
 
 	s := bufio.NewScanner(f)
@@ -334,6 +338,10 @@ func parseDpkgStatus() []inventory.Software {
 			cur.Version = val
 		case "Maintainer":
 			cur.Publisher = val
+		case "Status":
+			// dpkg status format: "want flag status", e.g. "install ok installed".
+			// Only report packages whose status ends with "installed".
+			installed = strings.HasSuffix(val, " installed")
 		}
 	}
 	flush()

@@ -81,21 +81,10 @@ func (h *Handler) listDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	devices, err := h.repo.List(r.Context(), status, site)
+	devices, total, err := h.repo.ListPaged(r.Context(), status, site, limit, offset)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	total := len(devices)
-	// Apply the page window in memory: List is a thin Fase 1 query without
-	// LIMIT, and the fleet fits in a single sorted query at this scale. When
-	// device counts reach the tens of thousands, push LIMIT/OFFSET into SQL.
-	if offset >= total {
-		devices = devices[:0]
-	} else if offset+limit > total {
-		devices = devices[offset:]
-	} else {
-		devices = devices[offset : offset+limit]
 	}
 
 	dtos := make([]deviceDTO, 0, len(devices))

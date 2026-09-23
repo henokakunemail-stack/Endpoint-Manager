@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -132,9 +134,19 @@ func main() {
 	go runOfflineSweep(database, hub, cfg.AgentOfflineAfter)
 
 	go func() {
-		log.Info().Str("addr", cfg.HTTPAddr).Msg("server listening")
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal().Err(err).Msg("http server")
+		if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
+			log.Info().Str("addr", cfg.HTTPAddr).
+				Str("cert", cfg.TLSCertFile).Str("key", cfg.TLSKeyFile).
+				Msg("server listening (TLS)")
+			if err := srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatal().Err(err).Msg("https server")
+			}
+		} else {
+			log.Warn().Str("addr", cfg.HTTPAddr).
+				Msg("server listening (PLAINTEXT — set TLS_CERT_FILE and TLS_KEY_FILE for production)")
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatal().Err(err).Msg("http server")
+			}
 		}
 	}()
 
@@ -150,7 +162,8 @@ func main() {
 }
 
 // bootstrapAdmin creates the default admin if no users exist yet.
-// Credentials are printed once to the server log — change after first login.
+// The password comes from ADMIN_PASSWORD env var; if unset, a random 24-char
+// password is generated and printed once to the server log.
 func bootstrapAdmin(d *sqlx.DB) error {
 	var count int
 	if err := d.Get(&count, `SELECT COUNT(*) FROM users`); err != nil {
@@ -159,7 +172,17 @@ func bootstrapAdmin(d *sqlx.DB) error {
 	if count > 0 {
 		return nil
 	}
-	hash, err := auth.HashPassword("admin12345")
+	password := os.Getenv("ADMIN_PASSWORD")
+	generated := false
+	if password == "" {
+		b := make([]byte, 12)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		password = hex.EncodeToString(b)
+		generated = true
+	}
+	hash, err := auth.HashPassword(password)
 	if err != nil {
 		return err
 	}
@@ -169,8 +192,13 @@ func bootstrapAdmin(d *sqlx.DB) error {
 	if err != nil {
 		return err
 	}
-	log.Info().Str("username", "admin").Str("password", "admin12345").
-		Msg("bootstrap: created default admin (CHANGE PASSWORD NOW)")
+	if generated {
+		log.Info().Str("username", "admin").Str("password", password).
+			Msg("bootstrap: created default admin with GENERATED password (CHANGE IT NOW)")
+	} else {
+		log.Info().Str("username", "admin").
+			Msg("bootstrap: created default admin with password from ADMIN_PASSWORD env")
+	}
 	return nil
 }
 

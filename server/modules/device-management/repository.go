@@ -69,6 +69,37 @@ func (r *Repository) List(ctx context.Context, status, site string) ([]Device, e
 	return devices, nil
 }
 
+// ListPaged returns a page of devices and the total count matching the filters.
+// Pagination is performed in SQL (LIMIT/OFFSET) so only the requested page is
+// transferred from the database.
+func (r *Repository) ListPaged(ctx context.Context, status, site string, limit, offset int) ([]Device, int, error) {
+	where := `WHERE retired_at IS NULL`
+	args := []any{}
+	if status != "" {
+		where += ` AND status = ?`
+		args = append(args, status)
+	}
+	if site != "" {
+		where += ` AND site = ?`
+		args = append(args, site)
+	}
+
+	// Total count first (same filters, no LIMIT).
+	var total int
+	if err := r.db.GetContext(ctx, &total,
+		`SELECT COUNT(*) FROM devices `+where, args...); err != nil {
+		return nil, 0, fmt.Errorf("count devices: %w", err)
+	}
+
+	q := `SELECT * FROM devices ` + where + ` ORDER BY hostname ASC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	var devices []Device
+	if err := r.db.SelectContext(ctx, &devices, q, args...); err != nil {
+		return nil, 0, fmt.Errorf("list devices paged: %w", err)
+	}
+	return devices, total, nil
+}
+
 // UpdateStatus sets status and last_seen_at.
 func (r *Repository) UpdateStatus(ctx context.Context, id, status string, lastSeen time.Time) error {
 	res, err := r.db.ExecContext(ctx, `

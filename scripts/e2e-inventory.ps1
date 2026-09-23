@@ -36,6 +36,7 @@ $env:DB_PATH = $dbPath
 $env:JWT_SECRET = 'e2e-inv-live-secret-0123456789abcdef0123'
 $env:HTTP_ADDR = ":$port"
 $env:LOG_LEVEL = 'info'
+$env:ADMIN_PASSWORD = 'admin12345'
 
 $serverExe = Join-Path $env:TEMP 'emserver.exe'
 $agentExe = Join-Path $env:TEMP 'emagent-rel.exe'
