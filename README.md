@@ -5,7 +5,11 @@ yang tersebar di kantor pusat dan cabang di luar jaringan pusat.
 
 ## Status proyek
 
-**Fase 0 — Brainstorming arsitektur (selesai, menunggu approve).**
+**Fase 2 selesai (device management) — menunggu approve untuk Fase 3.**
+
+Status per modul: `TESTED (STAGING)` untuk core/auth/RBAC/transport/audit/
+agent-Windows/device-management; sisanya `NOT STARTED`. Detail + bukti test ada
+di scorecard.
 
 Lihat:
 - [`docs/architecture/phase-0-brainstorming.md`](docs/architecture/phase-0-brainstorming.md)
@@ -49,4 +53,5 @@ end-to-end yang ditampilkan.
 - Go 1.26.8, Node v24.20.0 tersedia.
 - **Tidak ada compiler C** → semua dependency dipilih pure-Go.
 - **WSL/Docker daemon mati** → agent Linux/macOS belum dapat diuji di mesin ini.
-- **git belum terinstal**.
+- **git terpasang** (2.55.0) tetapi **tidak di PATH** untuk sesi PowerShell;
+  pakai path absolut.
