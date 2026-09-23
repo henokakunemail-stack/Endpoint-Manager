@@ -18,12 +18,12 @@ Aplikasi secara keseluruhan hanya boleh disebut "siap production" jika:
 
 | Pemeriksaan | Hasil aktual |
 |---|---|
-| `go test ./...` | **33 PASS** (30 fungsi test + 3 subtest), 0 gagal, 0 skip |
+| `go test ./...` | **33 PASS**, 0 gagal, 0 skip |
 | `go vet ./...` | **Bersih** — 0 warning |
 | Build server (`./server/cmd/server`) | OK |
 | Build agent Windows | OK |
-| Cross-compile agent **Linux** | ❌ **GAGAL KOMPILASI** (lihat catatan Agent — Linux) |
-| Cross-compile agent **macOS** (amd64) | OK |
+| Cross-compile agent **Linux** (amd64 + arm64) | ✅ OK |
+| Cross-compile agent **macOS** (amd64 + arm64) | ✅ OK |
 | Live E2E Fase 1 (regresi) | ✅ **8/8 lulus** — server+agent binary asli |
 | Live E2E Fase 2 (inventory) | ✅ **12/12 lulus** — data asli mesin ini |
 
@@ -38,15 +38,15 @@ tinggi dan teruji, tapi cakupannya masih kecil.
 | Modul | Status | Ditest E2E? | Catatan / Blocker |
 |---|---|---|---|
 | Core / Infra | `TESTED (STAGING)` | ✅ Ya — live binary | Config, DB+migrasi 0001/0002, logger, bootstrap. 8 cek live E2E lulus (regresi bersih). |
-| Auth (JWT, bcrypt, login) | `TESTED (STAGING)` | ✅ Ya | Login + token replay ditolak (401) terverifikasi live. **TLS belum diuji** — semua tes plaintext. Password bootstrap default `admin12345` hardcode di `main.go:162`. |
+| Auth (JWT, bcrypt, login) | `TESTED (STAGING)` | ✅ Ya | Login + token replay ditolak (401) terverifikasi live. TLS siap diaktifkan (set `TLS_CERT_FILE` + `TLS_KEY_FILE`). Password bootstrap dari `ADMIN_PASSWORD` env var atau random generated. |
 | RBAC | `TESTED (STAGING)` | ✅ Ya | Hierarki viewer<technician<admin terverifikasi (403/201 live). |
 | Transport (WS, hub, offline) | `TESTED (STAGING)` | ✅ Ya | Outbound-only; offline detection cepat; command queue survive disconnect. Hub **in-memory** → single-node only, belum bisa horizontal scale. |
 | Audit Log | `TESTED (STAGING)` | ✅ Ya | 6 aksi terverifikasi berurutan termasuk pasangan connect+disconnect. |
 | Agent — Windows | `TESTED (STAGING)` | ✅ Ya — binary asli | Enroll + connect + command nyata. RAM 16GB & CPU i5-1135G7 **cocok dengan query CIM independen**. |
-| Agent — Linux | ❌ **BROKEN (compile error)** | ❌ Tidak | **Koreksi klaim lama.** Bukan "build saja" — **tidak kompilasi sama sekali**: `agent/linux/inventory_linux.go:174` `var disks []Disk` (seharusnya `inventory.Disk`). Plus `utsString([65]int8)` akan break di ARM64 (`uint8`), dan parser dpkg abaikan field `Status:` → software yang sudah uninstall tetap dilaporkan. |
-| Agent — macOS | `CODE COMPLETE (UNTESTED)` | ❌ Build saja | Kompilasi OK. Bug runtime belum teruji: parsing output `mount` dengan `SplitN(line," ",4)` memotong volume bernama spasi (`/Volumes/Macintosh HD` → `/Volumes/Macintosh`). |
-| TLS / WSS | `NOT STARTED` | ❌ | **Risiko tertinggi, dan kodenya memang belum ada** — bukan sekadar "belum diuji". Server `ListenAndServe()` plain; config punya zero field TLS; credentials/device secret di header plaintext. **Blokir deployment ke cabang.** |
-| Device Management | `TESTED (STAGING)` | ✅ Ya — live binary | 12/12 live E2E lulus hari ini: 32 software entries nyata, serial Dell Latitude 3420 terekam, on-demand collect terbukti me-refresh snapshot, group + retire/restore jalan. Pagination masih in-memory slice (bukan SQL LIMIT) — OK di skala saat ini, perlu diubah sebelum puluhan ribu device. |
+| Agent — Linux | `CODE COMPLETE (UNTESTED)` | ❌ Build saja | **Diperbaiki sesi ini.** Compile error `undefined: Disk` di-fix; parser dpkg sekarang cek field `Status:` (skip paket uninstalled). Cross-compile linux/amd64 + linux/arm64 sukses. Belum diuji di mesin Linux nyata (WSL/Docker mati). |
+| Agent — macOS | `CODE COMPLETE (UNTESTED)` | ❌ Build saja | **Diperbaiki sesi ini.** Parser mount sekarang tahan volume dengan spasi. Cross-compile darwin/amd64 + darwin/arm64 sukses. Belum diuji di mesin macOS nyata. |
+| TLS / WSS | `CODE COMPLETE (UNTESTED)` | ❌ | **Diperbaiki sesi ini.** Server sekarang mendukung `ListenAndServeTLS` via env var `TLS_CERT_FILE` + `TLS_KEY_FILE`. Belum diuji dengan sertifikat sungguhan — perlu sertifikat (self-signed untuk staging, CA-signed untuk production). |
+| Device Management | `TESTED (STAGING)` | ✅ Ya — live binary | 12/12 live E2E lulus: 32 software entries nyata, serial Dell Latitude 3420 terekam, on-demand collect terbukti. **Pagination diperbaiki sesi ini** — sekarang SQL LIMIT/OFFSET, bukan in-memory slice. |
 | Dashboard / Web Console | `NOT STARTED` | — | **Nol file** frontend (tidak ada `.tsx`/`.html`/`package.json`). Padahal Node v24.20.0 tersedia. |
 | Software Deployment | `NOT STARTED` | — | Modul kritikal (syarat production ready). Nol kode. |
 | Patch Management | `NOT STARTED` | — | Modul kritikal. Nol kode. |
@@ -61,31 +61,24 @@ tinggi dan teruji, tapi cakupannya masih kecil.
 | Task Scheduler / Script Repository | `NOT STARTED` | — | Hanya scheduler inventory. Disetujui di Fase 0 tapi belum dikerjakan. |
 
 **Status aplikasi secara keseluruhan: `IN PROGRESS`** — fondasi teruji dan bersih,
- tapi 11 modul masih `NOT STARTED` dan 3 modul kritikal (Remote Control, Patch,
- Software Deployment) belum dimulai. Klaim "production ready" belum bisa dibuat
- sesuai kriteria di atas. Selain itu **TLS belum ada kodenya sama sekali**, dan
- **agent Linux saat ini rusak** — dua hal yang harus diperbaiki sebelum lulus
- berikutnya.
+ 7 hutang teknis produksi telah diperbaiki (TLS, compile Linux, password hardcode,
+ SQL pagination, parser dpkg/macOS). 11 modul masih `NOT STARTED` dan 3 modul
+ kritikal (Remote Control, Patch, Software Deployment) belum dimulai. Klaim
+ "production ready" belum bisa dibuat sesuai kriteria di atas.
 
 ---
 
 ## Yang menggantung / belum selesai (daftar eksplisit)
 
-**A. Hutang teknis nyata (bisa dikerjakan sekarang, tanpa biaya):**
+**A. Hutang teknis — SEMUA 7 ITEM SUDAH DIPERBAIKI (commit `109f941`):**
 
-1. **Agent Linux tidak kompilasi** — `inventory_linux.go:174`. Ini regressi yang
-   membuat klaim "multi-OS" platform belum benar. *Quick fix, high credibility gain.*
-2. **`utsString([65]int8)`** (`inventory_linux.go:275`) → pecah build di ARM64 Linux.
-3. **Parser dpkg** (`inventory_linux.go:298`) abaikan field `Status:` → melaporkan
-   software yang sudah di-`deinstall`/`purge`.
-4. **Parser `mount` macOS** (`inventory_darwin.go:153`) → volume dengan spasi
-   dipotong; `Statfs` gagal diam-diam dan disk hilang dari laporan.
-5. **Password bootstrap `admin12345`** hardcode — wajib dipaksa ganti saat first
-   login sebelum production.
-6. **Pagination in-memory** (`handler.go:90`) → pindahkan LIMIT/OFFSET ke SQL
-   sebelum skala besar.
-7. **`README.md` baris 7 & 52 sudah usang** — masih bilang "Fase 0, menunggu
-   approve" dan "git belum terinstal" (git ada, Fase 2 selesai).
+1. ~~Agent Linux tidak kompilasi~~ → ✅ Fixed: `inventory.Disk` qualifier.
+2. ~~`utsString` ARM64~~ → ✅ Verified: `[65]int8` di kedua arch (Go 1.26), komentar diperjelas.
+3. ~~Parser dpkg~~ → ✅ Fixed: cek `Status:` field, skip `deinstall`/`purge`.
+4. ~~Parser `mount` macOS~~ → ✅ Fixed: parse `" on "` + `" ("` delimiters.
+5. ~~Password `admin12345` hardcode~~ → ✅ Fixed: baca `ADMIN_PASSWORD` env var, atau random generated.
+6. ~~Pagination in-memory~~ → ✅ Fixed: `ListPaged()` dengan SQL `LIMIT`/`OFFSET`.
+7. ~~README usang~~ → ✅ Fixed: status dan catatan git diperbarui.
 
 **B. Dokumen rencana vs implementasi (selisih kecil, namun perlu disamakan):**
 
@@ -104,7 +97,7 @@ bukan fitur yang hilang.
 
 | Blocker | Mengapa menggantung |
 |---|---|
-| **TLS** | Kode belum ditulis sama sekali. Bisa dikerjakan sekarang (crypto/tls pure-Go, atau reverse proxy nginx/Caddy). |
+| **TLS** | Kode sudah ada (`ListenAndServeTLS`). Perlu sertifikat: self-signed untuk staging, CA-signed untuk production. Belum diuji end-to-end dengan sertifikat. |
 | **Code-signing certificate** | Berbayar. Tanpa ini agent dipatok SmartScreen/Defender di setiap deploy. |
 | **VPS publik untuk relay remote control** | Belum ada. Remote control hanya bisa diuji local-only. |
 | **Runtime Linux/macOS untuk uji agent** | WSL/Docker daemon mati di mesin ini. Nyalakan salah satu untuk membuka blokir agent Linux/macOS. |
@@ -139,4 +132,4 @@ bukan fitur yang hilang.
 | 2026-09-22 | 0 | Fase 0 brainstorming arsitektur. Verifikasi environment + dependensi. Belum ada kode aplikasi. |
 | 2026-09-22 | 1 | Fase 1 selesai: core server, multi-OS agent, transport, auth, RBAC, audit. 8 cek live E2E lulus, 3 bug produksi ditemukan & diperbaiki. |
 | 2026-09-22 | 2 | Fase 2 selesai: inventory, groups, retire/restore, pagination. 9/9 live E2E + 8/8 regresi. 2 bug produksi ditemukan & diperbaiki. |
-| 2026-09-23 | 3 | **Verifikasi ulang menyeluruh.** 33 test + `go vet` bersih. **Live E2E dijalankan ulang: 12/12 (Fase 2) + 8/8 (Fase 1 regresi), semua dengan data nyata mesin ini** (RAM 16GB, i5-1135G7, Dell Latitude 3420, 32 software). **Temuan koreksi:** (1) **agent Linux tidak pernah kompilasi** — `inventory_linux.go:174` `undefined: Disk`; klaim lama "Build saja" salah. (2) **TLS bukan "belum diuji" tapi kodenya belum ada sama sekali** — diturunkan ke `NOT STARTED`. (3) Bug runtime teridentifikasi di macOS mount parser, utsString ARM64, dpkg Status. Status keseluruhan tetap `IN PROGRESS`; jangkar credibilitas dipertahankan dengan hanya mengklaim yang terbukti. |
+| 2026-09-23 | 3 | **Verifikasi ulang + perbaikan 7 production blocker.** Temuan audit: agent Linux tidak kompilasi, TLS belum ada, password hardcode, pagination in-memory, parser dpkg/macOS buggy. **Semua 7 diperbaiki dan diverifikasi**: 33 test PASS, `go vet` bersih, cross-compile 5 target (termasuk Linux amd64+arm64 yang sebelumnya gagal), live E2E: 12/12 Fase 2 + 8/8 Fase 1 regresi. Agent Linux naik dari BROKEN → `CODE COMPLETE (UNTESTED)`, TLS dari `NOT STARTED` → `CODE COMPLETE (UNTESTED)`. |
