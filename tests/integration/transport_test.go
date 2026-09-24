@@ -174,6 +174,12 @@ func TestE2EEnrollConnectCommand(t *testing.T) {
 		"agent_version": "0.1.0",
 		"os":            map[string]string{"name": "windows", "version": "10.0.22631"},
 	}})
+	if err := waitFor(func() bool {
+		d, err := e.repo.GetByID(ctx, device.ID)
+		return err == nil && d.AgentVersion == "0.1.0" && d.OSVersion == "10.0.22631"
+	}); err != nil {
+		t.Fatalf("agent hello OS info not persisted: %v", err)
+	}
 	waitForStatus(t, e, device.ID, devicemgmt.StatusOnline)
 
 	dev, err := e.repo.GetByID(ctx, device.ID)
