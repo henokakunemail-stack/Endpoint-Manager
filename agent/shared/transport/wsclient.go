@@ -85,6 +85,7 @@ func (c *Client) Run(ctx context.Context, hello any) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		connStart := time.Now()
 		err := c.connectAndServe(ctx, hello)
 		if c.isClosed() {
 			// Graceful shutdown requested via Close(): do not reconnect.
@@ -92,6 +93,11 @@ func (c *Client) Run(ctx context.Context, hello any) error {
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+
+		// Reset backoff if the previous connection was stable for at least 30s.
+		if time.Since(connStart) > 30*time.Second {
+			backoff = time.Second
 		}
 
 		// Exponential backoff with full jitter.
@@ -152,8 +158,12 @@ func (c *Client) connectAndServe(ctx context.Context, hello any) error {
 	log.Info().Str("server", c.serverURL).Msg("connected to server")
 
 	// Answer server pings so a half-open connection is detected on both ends.
-	// The standard library does not auto-reply pings while a read loop is
-	// blocked elsewhere, so we handle the ping frame explicitly here.
+	// Gorilla handles control frames in ReadMessage; extending the read deadline
+	// on incoming ping keeps the connection alive even during idle periods.
+	ws.SetPingHandler(func(appData string) error {
+		_ = ws.SetReadDeadline(time.Now().Add(45 * time.Second))
+		return ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(5*time.Second))
+	})
 	ws.SetPongHandler(func(string) error {
 		_ = ws.SetReadDeadline(time.Now().Add(45 * time.Second))
 		return nil

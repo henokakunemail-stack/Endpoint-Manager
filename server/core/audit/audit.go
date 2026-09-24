@@ -44,7 +44,7 @@ func List(ctx context.Context, db *sqlx.DB, limit int) ([]Entry, error) {
 	}
 	var rows []Entry
 	err := db.SelectContext(ctx, &rows,
-		`SELECT id, actor_type, actor_id, action, target_id, details, created_at
+		`SELECT id, actor_type, actor_id, action, target_id, COALESCE(details, '{}') AS details, created_at
 		 FROM audit_logs ORDER BY created_at DESC LIMIT ?`, limit)
 	return rows, err
 }

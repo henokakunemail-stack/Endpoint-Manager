@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,7 +25,19 @@ import (
 	"github.com/endpoint-mgmt/server/core/logger"
 	"github.com/endpoint-mgmt/server/core/rbac"
 	"github.com/endpoint-mgmt/server/core/transport"
+	"github.com/endpoint-mgmt/server/modules/dashboard"
 	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
+	patchmgmt "github.com/endpoint-mgmt/server/modules/patch-management"
+	remoteexec "github.com/endpoint-mgmt/server/modules/remote-exec"
+	softwaredeployment "github.com/endpoint-mgmt/server/modules/software-deployment"
+	"github.com/endpoint-mgmt/server/modules/reports"
+	usermgmt "github.com/endpoint-mgmt/server/modules/user-management"
+	"github.com/endpoint-mgmt/server/modules/alerting"
+	"github.com/endpoint-mgmt/server/modules/agentupdate"
+	"github.com/endpoint-mgmt/server/modules/assetlicense"
+	"github.com/endpoint-mgmt/server/modules/networkfilter"
+	"github.com/endpoint-mgmt/server/modules/remotecontrol"
+	"github.com/endpoint-mgmt/server/modules/taskscheduler"
 )
 
 func main() {
@@ -72,9 +85,15 @@ func main() {
 	enrollH := devicemgmt.NewEnrollmentHandler(deviceRepo, database)
 	enrollH.Register(r)
 
+	// Fase 5: remote command execution and interactive terminal relay.
+	remoteExecRepo := remoteexec.NewRepository(database)
+	termRelay := remoteexec.NewTerminalRelay()
+	remoteExecH := remoteexec.NewHandler(remoteExecRepo, hub, termRelay, &auditAdapter{db: database}, jwtSvc, jwtSvc.RequireAuth, deviceRepo)
+
 	r.Handle("/api/agent/connect",
 		transport.NewWSHandler(hub, deviceRepo, database, cfg.AgentOfflineAfter).
-			WithInventory(invH))
+			WithInventory(invH).
+			WithTerminal(termRelay))
 
 	// Device management API (JWT + RBAC).
 	deviceH := devicemgmt.NewHandler(deviceRepo, database, jwtSvc, cfg.EnrollmentTTL)
@@ -82,6 +101,69 @@ func main() {
 
 	// Fase 2: inventory, device lifecycle and static groups.
 	invH.Register(r)
+
+	// Fase 3: dashboard executive metrics.
+	dashRepo := dashboard.NewRepository(database)
+	dashH := dashboard.NewHandler(dashRepo, jwtSvc.RequireAuth)
+	dashH.Register(r)
+
+	// Fase 4: software package repository and deployment engine.
+	softRepo := softwaredeployment.NewRepository(database)
+	softH := softwaredeployment.NewHandler(softRepo, hub, &auditAdapter{db: database}, "./data/packages", jwtSvc.RequireAuth)
+	softH.Register(r)
+
+	// Fase 5: remote execution & terminal routes.
+	remoteExecH.Register(r)
+
+	// Fase 6: patch management & OS updates.
+	patchRepo := patchmgmt.NewRepository(database)
+	patchH := patchmgmt.NewHandler(patchRepo, hub, &auditAdapter{db: database}, jwtSvc, jwtSvc.RequireAuth, deviceRepo)
+	patchH.Register(r)
+
+	// Fase 7: user management & lifecycle.
+	userRepo := usermgmt.NewRepository(database)
+	userH := usermgmt.NewHandler(userRepo, &auditAdapter{db: database}, jwtSvc.RequireAuth)
+	userH.Register(r)
+
+	// Fase 8: reports & export engine.
+	reportsRepo := reports.NewRepository(database)
+	reportsH := reports.NewHandler(reportsRepo, jwtSvc.RequireAuth)
+	reportsH.Register(r)
+
+	// Fase 9: alerting & notification engine.
+	alertRepo := alerting.NewRepository(database)
+	alertEval := alerting.NewEvaluator(database, alertRepo)
+	alertH := alerting.NewHandler(alertRepo, alertEval, &auditAdapter{db: database}, jwtSvc.RequireAuth)
+	alertH.Register(r)
+	alertEval.StartBackgroundEvaluator(30 * time.Second)
+
+	// Fase 10: task scheduler & script repository.
+	schedRepo := taskscheduler.NewRepository(database)
+	schedulerSvc := taskscheduler.NewScheduler(schedRepo, hub)
+	schedH := taskscheduler.NewHandler(schedRepo, schedulerSvc, &auditAdapter{db: database}, jwtSvc.RequireAuth)
+	schedH.Register(r)
+	schedulerSvc.StartBackgroundScheduler(30 * time.Second)
+
+	// Fase 11: remote control & screen capture relay.
+	rcRepo := remotecontrol.NewRepository(database)
+	rcRelay := remotecontrol.NewRelayManager(rcRepo)
+	rcH := remotecontrol.NewHandler(rcRepo, rcRelay, hub, deviceRepo, &auditAdapter{db: database}, jwtSvc, jwtSvc.RequireAuth)
+	rcH.Register(r)
+
+	// Fase 12: network & web filter security policies.
+	filterRepo := networkfilter.NewRepository(database)
+	filterH := networkfilter.NewHandler(filterRepo, hub, deviceRepo, &auditAdapter{db: database}, jwtSvc.RequireAuth)
+	filterH.Register(r)
+
+	// Fase 13: agent self-update & rollout management.
+	updateRepo := agentupdate.NewRepository(database)
+	updateH := agentupdate.NewHandler(updateRepo, hub, deviceRepo, &auditAdapter{db: database}, "./data/agent-releases", jwtSvc.RequireAuth)
+	updateH.Register(r)
+
+	// Fase 14: asset & license management.
+	assetRepo := assetlicense.NewRepository(database)
+	assetH := assetlicense.NewHandler(assetRepo, &auditAdapter{db: database}, jwtSvc.RequireAuth)
+	assetH.Register(r)
 
 	// Command dispatch demo endpoint: send "ping" to a device's live connection.
 	r.With(jwtSvc.RequireAuth, rbac.RequireRole(rbac.RoleTechnician)).
@@ -123,11 +205,17 @@ func main() {
 			writeJSON(w, http.StatusOK, map[string]string{"status": "sent", "command_id": cmdID})
 		})
 
+	// Mount embedded Web Console SPA on all non-API routes.
+	registerWebConsole(r)
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
 	}
 
 	// Background sweeper: mark devices whose agents went silent as offline.
@@ -243,4 +331,12 @@ func mustJSON(v any) []byte {
 		return []byte(`{"type":"error"}`)
 	}
 	return b
+}
+
+type auditAdapter struct {
+	db *sqlx.DB
+}
+
+func (a *auditAdapter) Log(ctx context.Context, actorType, actorID, action, targetID string, details map[string]string) error {
+	return audit.Log(ctx, a.db, actorType, actorID, action, targetID, details)
 }

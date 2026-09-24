@@ -25,8 +25,16 @@ type WSHandler struct {
 	// inventory accepts agent collection reports. Optional: nil means reports are
 	// logged and dropped, which keeps Fase 1 deployments working unchanged.
 	inventory InventoryReceiver
+	// terminal accepts interactive terminal data from agents (Fase 5).
+	terminal TerminalReceiver
 	// setCapabilities stores the capability list advertised in hello.
 	setCapabilities func(ctx context.Context, deviceID, capabilitiesJSON string) error
+}
+
+// TerminalReceiver relays interactive terminal data and closure events from an agent to the server.
+type TerminalReceiver interface {
+	AcceptTerminalData(ctx context.Context, deviceID string, sessionID string, data string) error
+	AcceptTerminalClose(ctx context.Context, deviceID string, sessionID string) error
 }
 
 // InventoryReceiver stores an inventory report. The transport passes raw JSON:
@@ -56,6 +64,12 @@ func (h *WSHandler) WithInventory(r InventoryReceiver) *WSHandler {
 	if sc, ok := r.(capabilitiesSetter); ok {
 		h.setCapabilities = sc.SetCapabilities
 	}
+	return h
+}
+
+// WithTerminal attaches the Fase 5 terminal receiver for interactive shell streaming.
+func (h *WSHandler) WithTerminal(t TerminalReceiver) *WSHandler {
+	h.terminal = t
 	return h
 }
 
@@ -191,9 +205,51 @@ func (h *WSHandler) readLoop(ctx context.Context, c *Conn, ws *websocket.Conn) {
 			h.handleCommandResult(ctx, c, env)
 		case TypeInventory:
 			h.handleInventory(ctx, c, env)
+		case TypeTermData:
+			h.handleTermData(ctx, c, env)
+		case TypeTermClose:
+			h.handleTermClose(ctx, c, env)
 		default:
 			log.Warn().Str("device", c.DeviceID).Str("type", env.Type).Msg("unknown message type")
 		}
+	}
+}
+
+// handleTermData routes incoming terminal stdout data from the agent to the active operator session.
+func (h *WSHandler) handleTermData(ctx context.Context, c *Conn, env Envelope) {
+	if h.terminal == nil {
+		return
+	}
+	var p struct {
+		SessionID string `json:"session_id"`
+		Data      string `json:"data"`
+	}
+	b, _ := json.Marshal(env.Payload)
+	_ = json.Unmarshal(b, &p)
+	if p.SessionID == "" {
+		p.SessionID = env.ID
+	}
+	if p.SessionID != "" && p.Data != "" {
+		_ = h.terminal.AcceptTerminalData(ctx, c.DeviceID, p.SessionID, p.Data)
+	}
+}
+
+// handleTermClose handles terminal closure notification from the agent.
+func (h *WSHandler) handleTermClose(ctx context.Context, c *Conn, env Envelope) {
+	if h.terminal == nil {
+		return
+	}
+	sessionID := env.ID
+	if sessionID == "" {
+		var p struct {
+			SessionID string `json:"session_id"`
+		}
+		b, _ := json.Marshal(env.Payload)
+		_ = json.Unmarshal(b, &p)
+		sessionID = p.SessionID
+	}
+	if sessionID != "" {
+		_ = h.terminal.AcceptTerminalClose(ctx, c.DeviceID, sessionID)
 	}
 }
 

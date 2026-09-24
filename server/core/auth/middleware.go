@@ -16,21 +16,26 @@ const (
 	CtxUsername contextKey = "usr"
 )
 
-// RequireAuth validates the Authorization: Bearer <token> header and stores
-// the claims in the request context.
+// RequireAuth validates the Authorization: Bearer <token> header (or ?token= query parameter)
+// and stores the claims in the request context.
 func (s *JWTService) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawToken := ""
 		h := r.Header.Get("Authorization")
-		if h == "" {
-			http.Error(w, "missing authorization header", http.StatusUnauthorized)
+		if h != "" {
+			parts := strings.SplitN(h, " ", 2)
+			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+				rawToken = parts[1]
+			}
+		}
+		if rawToken == "" {
+			rawToken = r.URL.Query().Get("token")
+		}
+		if rawToken == "" {
+			http.Error(w, "missing authorization", http.StatusUnauthorized)
 			return
 		}
-		parts := strings.SplitN(h, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			http.Error(w, "invalid authorization header", http.StatusUnauthorized)
-			return
-		}
-		claims, err := s.Parse(parts[1])
+		claims, err := s.Parse(rawToken)
 		if err != nil {
 			http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 			return

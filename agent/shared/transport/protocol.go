@@ -11,12 +11,14 @@ type Envelope struct {
 }
 
 const (
-	TypeHello         = "hello"
-	TypeHeartbeat     = "heartbeat"
-	TypeCommandResult = "command_result"
-	TypeCommand       = "command"
-	TypeInventory     = "inventory"           // agent -> server: collection result
-	TypeInventoryCollect = "inventory.collect" // server -> agent: collect now
+	TypeHello            = "hello"
+	TypeHeartbeat        = "heartbeat"
+	TypeCommandResult    = "command_result"
+	TypeCommand          = "command"
+	TypeInventory        = "inventory"           // agent -> server: collection result
+	TypeInventoryCollect = "inventory.collect"   // server -> agent: collect now
+	TypeTermData         = "term.data"           // Fase 5: interactive terminal data stream
+	TypeTermClose        = "term.close"          // Fase 5: interactive terminal session closed
 
 	StatusDone   = "done"
 	StatusFailed = "failed"

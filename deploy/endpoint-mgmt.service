@@ -1,0 +1,29 @@
+[Unit]
+Description=Enterprise Endpoint Management Central Server
+Documentation=https://endpoint.esta.co.id
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=endpointmgmt
+Group=endpointmgmt
+WorkingDirectory=/opt/endpoint-mgmt
+EnvironmentFile=/opt/endpoint-mgmt/.env
+ExecStart=/opt/endpoint-mgmt/endpoint-mgmt-server
+
+# Restart automatically on crash with a short delay
+Restart=always
+RestartSec=5s
+
+# High open file limit to comfortably handle thousands of concurrent agent WebSockets
+LimitNOFILE=65535
+LimitNPROC=32768
+
+# Basic sandboxing
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

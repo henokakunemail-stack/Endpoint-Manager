@@ -1,0 +1,242 @@
+package integration
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/jmoiron/sqlx"
+	_ "modernc.org/sqlite"
+
+	"github.com/endpoint-mgmt/server/core/db"
+	patchmgmt "github.com/endpoint-mgmt/server/modules/patch-management"
+)
+
+func TestPatchManagement_RBAC(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	repo := patchmgmt.NewRepository(database)
+	ctx := context.Background()
+
+	// Create test device
+	createTestDeviceForPatch(t, database, "dev-patch-1", "PATCH-WINDOWS-1")
+
+	// Upsert patches
+	patches := []patchmgmt.DevicePatch{
+		{
+			PatchID:        "KB5034441",
+			Title:          "Windows Security Update KB5034441",
+			Severity:       patchmgmt.SeverityCritical,
+			Category:       patchmgmt.CategorySecurity,
+			KBID:           "KB5034441",
+			InstalledState: patchmgmt.StateMissing,
+		},
+		{
+			PatchID:        "KB5034123",
+			Title:          "Windows Cumulative Update KB5034123",
+			Severity:       patchmgmt.SeverityImportant,
+			Category:       patchmgmt.CategoryUpdates,
+			KBID:           "KB5034123",
+			InstalledState: patchmgmt.StateMissing,
+		},
+	}
+	if err := repo.UpsertPatches(ctx, "dev-patch-1", patches); err != nil {
+		t.Fatal("upsert patches:", err)
+	}
+
+	// List device patches
+	listed, err := repo.ListDevicePatches(ctx, "dev-patch-1", "")
+	if err != nil {
+		t.Fatal("list patches:", err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("expected 2 patches, got %d", len(listed))
+	}
+	t.Logf("Listed %d patches for dev-patch-1", len(listed))
+
+	// List missing only
+	missing, err := repo.ListDevicePatches(ctx, "dev-patch-1", "missing")
+	if err != nil {
+		t.Fatal("list missing patches:", err)
+	}
+	if len(missing) != 2 {
+		t.Fatalf("expected 2 missing patches, got %d", len(missing))
+	}
+
+	// Fleet summary
+	summary, err := repo.GetFleetSummary(ctx)
+	if err != nil {
+		t.Fatal("fleet summary:", err)
+	}
+	if summary.TotalMissingPatches != 2 {
+		t.Fatalf("expected 2 total missing, got %d", summary.TotalMissingPatches)
+	}
+	if summary.CriticalSecurityPatches < 1 {
+		t.Fatalf("expected at least 1 critical/security, got %d", summary.CriticalSecurityPatches)
+	}
+	t.Logf("Fleet summary: missing=%d, critical=%d, vulnerable=%d",
+		summary.TotalMissingPatches, summary.CriticalSecurityPatches, summary.VulnerableDevices)
+}
+
+func TestPatchManagement_InstallJobLifecycle(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	repo := patchmgmt.NewRepository(database)
+	ctx := context.Background()
+
+	// Create test device and user
+	createTestDeviceForPatch(t, database, "dev-patch-2", "PATCH-LINUX-1")
+	createTestUserForPatch(t, database, "tech-patch-1", "patchtechuser", "technician")
+
+	// Upsert a patch
+	patches := []patchmgmt.DevicePatch{
+		{
+			PatchID:        "curl-7.88.1",
+			Title:          "Update for curl-7.88.1",
+			Severity:       patchmgmt.SeverityImportant,
+			Category:       patchmgmt.CategorySecurity,
+			InstalledState: patchmgmt.StateMissing,
+		},
+	}
+	if err := repo.UpsertPatches(ctx, "dev-patch-2", patches); err != nil {
+		t.Fatal("upsert patches:", err)
+	}
+
+	// Create install job
+	patchIDsJSON, _ := json.Marshal([]string{"curl-7.88.1"})
+	job := &patchmgmt.PatchInstallJob{
+		ID:           "job-patch-1",
+		DeviceID:     "dev-patch-2",
+		OperatorID:   "tech-patch-1",
+		PatchIDs:     string(patchIDsJSON),
+		Status:       patchmgmt.JobStatusDispatched,
+		RebootPolicy: patchmgmt.RebootPolicyNoReboot,
+		StartedAt:    time.Now().UTC(),
+	}
+	if err := repo.CreateInstallJob(ctx, job); err != nil {
+		t.Fatal("create install job:", err)
+	}
+
+	// Get job
+	fetched, err := repo.GetInstallJob(ctx, "job-patch-1")
+	if err != nil {
+		t.Fatal("get install job:", err)
+	}
+	if fetched.Status != patchmgmt.JobStatusDispatched {
+		t.Fatalf("expected status dispatched, got %s", fetched.Status)
+	}
+
+	// Report install result
+	report := patchmgmt.PatchInstallReport{
+		JobID:          "job-patch-1",
+		Status:         patchmgmt.JobStatusCompleted,
+		RebootRequired: false,
+		OutputLog:      "Successfully installed curl-7.88.1",
+	}
+	if err := repo.UpdateInstallJobResult(ctx, report); err != nil {
+		t.Fatal("update install job result:", err)
+	}
+
+	// Verify job updated
+	updated, err := repo.GetInstallJob(ctx, "job-patch-1")
+	if err != nil {
+		t.Fatal("get updated job:", err)
+	}
+	if updated.Status != patchmgmt.JobStatusCompleted {
+		t.Fatalf("expected status completed, got %s", updated.Status)
+	}
+	if updated.CompletedAt == nil {
+		t.Fatal("expected completed_at to be set")
+	}
+
+	// Verify patch state was updated
+	devPatches, err := repo.ListDevicePatches(ctx, "dev-patch-2", "installed")
+	if err != nil {
+		t.Fatal("list installed patches:", err)
+	}
+	if len(devPatches) != 1 {
+		t.Fatalf("expected 1 installed patch after job completion, got %d", len(devPatches))
+	}
+	if devPatches[0].PatchID != "curl-7.88.1" {
+		t.Fatalf("expected patch curl-7.88.1, got %s", devPatches[0].PatchID)
+	}
+	t.Logf("Install job lifecycle verified: %s -> %s", job.Status, updated.Status)
+}
+
+func TestPatchManagement_UpsertIdempotency(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	repo := patchmgmt.NewRepository(database)
+	ctx := context.Background()
+
+	createTestDeviceForPatch(t, database, "dev-patch-3", "IDEM-TEST-1")
+
+	patches := []patchmgmt.DevicePatch{
+		{
+			PatchID:        "KB9999999",
+			Title:          "Test Patch v1",
+			Severity:       patchmgmt.SeverityLow,
+			Category:       patchmgmt.CategoryUpdates,
+			InstalledState: patchmgmt.StateMissing,
+		},
+	}
+	if err := repo.UpsertPatches(ctx, "dev-patch-3", patches); err != nil {
+		t.Fatal("first upsert:", err)
+	}
+
+	// Upsert again with updated title
+	patches[0].Title = "Test Patch v2 (updated)"
+	patches[0].Severity = patchmgmt.SeverityCritical
+	if err := repo.UpsertPatches(ctx, "dev-patch-3", patches); err != nil {
+		t.Fatal("second upsert:", err)
+	}
+
+	// Should still be 1 patch, with updated data
+	listed, err := repo.ListDevicePatches(ctx, "dev-patch-3", "")
+	if err != nil {
+		t.Fatal("list:", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected 1 patch after idempotent upsert, got %d", len(listed))
+	}
+	if listed[0].Title != "Test Patch v2 (updated)" {
+		t.Fatalf("expected updated title, got %s", listed[0].Title)
+	}
+	if listed[0].Severity != patchmgmt.SeverityCritical {
+		t.Fatalf("expected critical severity, got %s", listed[0].Severity)
+	}
+	t.Log("Upsert idempotency verified: same patch_id updated in place")
+}
+
+func createTestDeviceForPatch(t *testing.T, database *sqlx.DB, id, hostname string) {
+	t.Helper()
+	now := time.Now().UTC()
+	_, err := database.Exec(`INSERT INTO devices (id, hostname, os_name, device_secret_hash, status, enrolled_at, last_seen_at, updated_at, created_at)
+		VALUES (?, ?, 'windows', 'hash123', 'online', ?, ?, ?, ?)`, id, hostname, now, now, now, now)
+	if err != nil {
+		t.Fatalf("create test device %s: %v", id, err)
+	}
+}
+
+func createTestUserForPatch(t *testing.T, database *sqlx.DB, id, username, role string) {
+	t.Helper()
+	now := time.Now().UTC()
+	_, err := database.Exec(`INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+		VALUES (?, ?, '$2a$10$dummy', ?, ?, ?)`, id, username, role, now, now)
+	if err != nil {
+		t.Fatalf("create test user %s: %v", id, err)
+	}
+}

@@ -23,6 +23,7 @@ func Open(dbPath string) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", dbPath, err)
 	}
+	d.SetMaxOpenConns(1)
 
 	// Single writer avoids SQLITE_BUSY under concurrency; busy_timeout covers
 	// the brief windows between releases.

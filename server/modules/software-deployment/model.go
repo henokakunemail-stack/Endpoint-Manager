@@ -1,0 +1,106 @@
+package softwaredeployment
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"time"
+)
+
+// NewID produces a random 32-character hex ID.
+func NewID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+const (
+	OSTargetWindows = "windows"
+	OSTargetLinux   = "linux"
+	OSTargetMacOS   = "macos"
+
+	PkgTypeMSI    = "msi"
+	PkgTypeEXE    = "exe"
+	PkgTypeDEB    = "deb"
+	PkgTypeRPM    = "rpm"
+	PkgTypePKG    = "pkg"
+	PkgTypeScript = "script"
+
+	TargetDevice = "device"
+	TargetGroup  = "group"
+	TargetAll    = "all"
+
+	TaskStatusPending     = "pending"
+	TaskStatusDispatched  = "dispatched"
+	TaskStatusDownloading = "downloading"
+	TaskStatusInstalling  = "installing"
+	TaskStatusSuccess     = "success"
+	TaskStatusFailed      = "failed"
+)
+
+type SoftwarePackage struct {
+	ID            string    `db:"id" json:"id"`
+	Name          string    `db:"name" json:"name"`
+	Version       string    `db:"version" json:"version"`
+	OSTarget      string    `db:"os_target" json:"os_target"`
+	PackageType   string    `db:"package_type" json:"package_type"`
+	FileName      string    `db:"file_name" json:"file_name"`
+	FileSize      int64     `db:"file_size" json:"file_size"`
+	SHA256        string    `db:"sha256" json:"sha256"`
+	StoragePath   string    `db:"storage_path" json:"-"`
+	InstallArgs   string    `db:"install_args" json:"install_args"`
+	UninstallArgs string    `db:"uninstall_args" json:"uninstall_args"`
+	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type SoftwareDeployment struct {
+	ID          string     `db:"id" json:"id"`
+	PackageID   string     `db:"package_id" json:"package_id"`
+	Name        string     `db:"name" json:"name"`
+	TargetType  string     `db:"target_type" json:"target_type"`
+	TargetID    string     `db:"target_id" json:"target_id"`
+	CreatedBy   string     `db:"created_by" json:"created_by"`
+	Status      string     `db:"status" json:"status"`
+	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
+	CompletedAt *time.Time `db:"completed_at" json:"completed_at,omitempty"`
+
+	// Enriched fields for API responses
+	PackageName    string `db:"package_name" json:"package_name,omitempty"`
+	PackageVersion string `db:"package_version" json:"package_version,omitempty"`
+	TotalTasks     int    `db:"total_tasks" json:"total_tasks"`
+	SuccessTasks   int    `db:"success_tasks" json:"success_tasks"`
+	FailedTasks    int    `db:"failed_tasks" json:"failed_tasks"`
+}
+
+type DeploymentTask struct {
+	ID           string     `db:"id" json:"id"`
+	DeploymentID string     `db:"deployment_id" json:"deployment_id"`
+	PackageID    string     `db:"package_id" json:"package_id"`
+	DeviceID     string     `db:"device_id" json:"device_id"`
+	Status       string     `db:"status" json:"status"`
+	ExitCode     *int       `db:"exit_code" json:"exit_code,omitempty"`
+	OutputLog    *string    `db:"output_log" json:"output_log,omitempty"`
+	ErrorMessage *string    `db:"error_message" json:"error_message,omitempty"`
+	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
+	CompletedAt  *time.Time `db:"completed_at" json:"completed_at,omitempty"`
+
+	// Enriched fields
+	Hostname string `db:"hostname" json:"hostname,omitempty"`
+	Site     string `db:"site" json:"site,omitempty"`
+}
+
+type CreateDeploymentRequest struct {
+	Name       string `json:"name"`
+	PackageID  string `json:"package_id"`
+	TargetType string `json:"target_type"` // 'device', 'group', 'all'
+	TargetID   string `json:"target_id"`   // device_id or group_id (optional for 'all')
+}
+
+type TaskProgressReport struct {
+	TaskID       string  `json:"task_id"`
+	Status       string  `json:"status"` // 'downloading', 'installing', 'success', 'failed'
+	ExitCode     *int    `json:"exit_code,omitempty"`
+	OutputLog    *string `json:"output_log,omitempty"`
+	ErrorMessage *string `json:"error_message,omitempty"`
+}

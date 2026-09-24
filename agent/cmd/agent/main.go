@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,7 +21,13 @@ import (
 
 	"github.com/endpoint-mgmt/agent/shared/enrollment"
 	"github.com/endpoint-mgmt/agent/shared/inventory"
+	"github.com/endpoint-mgmt/agent/shared/networkfilter"
+	"github.com/endpoint-mgmt/agent/shared/patch"
+	"github.com/endpoint-mgmt/agent/shared/remotecontrol"
+	"github.com/endpoint-mgmt/agent/shared/remoteexec"
+	"github.com/endpoint-mgmt/agent/shared/software"
 	"github.com/endpoint-mgmt/agent/shared/transport"
+	"github.com/endpoint-mgmt/agent/shared/update"
 )
 
 // osProvider is supplied per-OS by the build-tagged package for the target platform.
@@ -70,13 +77,235 @@ func main() {
 
 	collector := newInventoryCollector()
 
+	targetServerURL := creds.ServerURL
+	if targetServerURL == "" {
+		targetServerURL = serverURL
+	}
+
 	// Commands the agent can run. Later modules register more types here.
 	dispatcher := transport.NewDispatcher()
 	dispatcher.Register("ping", func(ctx context.Context, command, id string, payload json.RawMessage) any {
 		return map[string]string{"pong": time.Now().Format(time.RFC3339)}
 	})
+	dispatcher.Register("software.install", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		go func() {
+			if err := software.ExecuteInstall(context.Background(), targetServerURL, creds.DeviceID, creds.DeviceSecret, payload); err != nil {
+				log.Error().Err(err).Msg("software install execution error")
+			}
+		}()
+		return map[string]string{"status": "dispatched"}
+	})
+
+	// Fase 5: Remote Execution & Live Interactive Terminal
+	termMgr := remoteexec.NewTerminalManager()
+	defer termMgr.CloseAll()
 
 	client := transport.NewClient(creds.ServerURL, creds.DeviceID, creds.DeviceSecret)
+
+	dispatcher.Register("exec.run", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		go func() {
+			if err := remoteexec.ExecuteAndReport(context.Background(), targetServerURL, creds.DeviceID, creds.DeviceSecret, payload); err != nil {
+				log.Error().Err(err).Msg("remote execution error")
+			}
+		}()
+		return map[string]string{"status": "dispatched"}
+	})
+
+	dispatcher.Register("term.open", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		var p struct {
+			SessionID string `json:"session_id"`
+			Shell     string `json:"shell"`
+		}
+		_ = json.Unmarshal(payload, &p)
+		if p.SessionID == "" {
+			p.SessionID = id
+		}
+		sessID := p.SessionID
+		err := termMgr.StartSession(
+			sessID,
+			p.Shell,
+			func(output string) {
+				_ = client.Send(transport.Envelope{
+					Type: transport.TypeTermData,
+					ID:   sessID,
+					Payload: map[string]string{
+						"session_id": sessID,
+						"data":       output,
+					},
+				})
+			},
+			func() {
+				_ = client.Send(transport.Envelope{
+					Type: transport.TypeTermClose,
+					ID:   sessID,
+					Payload: map[string]string{
+						"session_id": sessID,
+					},
+				})
+			},
+		)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", sessID).Msg("start terminal session")
+			return map[string]string{"error": err.Error()}
+		}
+		return map[string]string{"status": "opened"}
+	})
+
+	dispatcher.Register("term.data", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		var p struct {
+			SessionID string `json:"session_id"`
+			Data      string `json:"data"`
+		}
+		_ = json.Unmarshal(payload, &p)
+		if p.SessionID == "" {
+			p.SessionID = id
+		}
+		_ = termMgr.WriteInput(p.SessionID, p.Data)
+		return map[string]string{"status": "delivered"}
+	})
+
+	dispatcher.Register("term.close", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		var p struct {
+			SessionID string `json:"session_id"`
+		}
+		_ = json.Unmarshal(payload, &p)
+		if p.SessionID == "" {
+			p.SessionID = id
+		}
+		_ = termMgr.CloseSession(p.SessionID)
+		return map[string]string{"status": "closed"}
+	})
+
+	// Fase 6: Patch Management & OS Updates
+	patchEngine := patch.NewEngine(targetServerURL, creds.DeviceID, creds.DeviceSecret)
+
+	dispatcher.Register("patch.scan", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		go func() {
+			patches, err := patchEngine.Scan(context.Background())
+			if err != nil {
+				log.Error().Err(err).Msg("patch scan failed")
+				return
+			}
+			if err := patchEngine.ReportScan(context.Background(), patches); err != nil {
+				log.Error().Err(err).Msg("report patch scan failed")
+			} else {
+				log.Info().Int("count", len(patches)).Msg("patch scan reported successfully")
+			}
+		}()
+		return map[string]string{"status": "dispatched"}
+	})
+
+	dispatcher.Register("patch.install", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		var params patch.InstallParams
+		_ = json.Unmarshal(payload, &params)
+		if params.JobID == "" {
+			params.JobID = id
+		}
+		go func() {
+			res, err := patchEngine.Install(context.Background(), params)
+			if err != nil {
+				log.Error().Err(err).Msg("patch installation failed")
+				res.Status = "failed"
+				res.ErrorMessage = err.Error()
+			}
+			if err := patchEngine.ReportInstall(context.Background(), res); err != nil {
+				log.Error().Err(err).Msg("report patch install result failed")
+			} else {
+				log.Info().Str("job_id", params.JobID).Str("status", res.Status).Msg("patch install result reported")
+			}
+		}()
+		return map[string]string{"status": "dispatched"}
+	})
+
+	// Fase 11: Remote Control
+	rcCapturer := remotecontrol.NewPlatformCapturer()
+	var activeRCSession *remotecontrol.Session
+	var rcMu sync.Mutex
+
+	dispatcher.Register("rc.start", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		var cfg remotecontrol.SessionConfig
+		_ = json.Unmarshal(payload, &cfg)
+		if cfg.SessionID == "" {
+			cfg.SessionID = id
+		}
+
+		rcMu.Lock()
+		if activeRCSession != nil {
+			activeRCSession.Stop()
+			activeRCSession = nil
+		}
+		session := remotecontrol.NewSession(cfg, targetServerURL, rcCapturer)
+		activeRCSession = session
+		rcMu.Unlock()
+
+		go func() {
+			if err := session.Start(context.Background()); err != nil {
+				log.Error().Err(err).Str("session", cfg.SessionID).Msg("remote control session failed")
+			}
+		}()
+
+		return map[string]string{"status": "starting", "session_id": cfg.SessionID}
+	})
+
+	dispatcher.Register("rc.stop", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		rcMu.Lock()
+		if activeRCSession != nil {
+			activeRCSession.Stop()
+			activeRCSession = nil
+		}
+		rcMu.Unlock()
+		return map[string]string{"status": "stopped"}
+	})
+
+	// Fase 12: Network & Web Filter
+	filterEngine := networkfilter.NewEngine(targetServerURL, creds.DeviceID, creds.DeviceSecret)
+
+	dispatcher.Register("filter.apply", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		var p struct {
+			PolicyVersion  string   `json:"policy_version"`
+			BlockedDomains []string `json:"blocked_domains"`
+		}
+		_ = json.Unmarshal(payload, &p)
+		if p.PolicyVersion == "" {
+			p.PolicyVersion = id
+		}
+
+		go func() {
+			count, err := filterEngine.ApplyBlockedDomains(p.BlockedDomains)
+			status := "synced"
+			errMsg := ""
+			if err != nil {
+				status = "failed"
+				errMsg = err.Error()
+				log.Error().Err(err).Msg("apply filter rules failed")
+			}
+			_ = filterEngine.ReportFilterState(context.Background(), p.PolicyVersion, status, count, errMsg)
+		}()
+
+		return map[string]string{"status": "applying", "version": p.PolicyVersion}
+	})
+
+	// Fase 13: Agent Self-Update & Rollout
+	updateEngine := update.NewEngine(targetServerURL, creds.DeviceID, creds.DeviceSecret)
+
+	dispatcher.Register("update.apply", func(ctx context.Context, command, id string, payload json.RawMessage) any {
+		var params update.UpdateParams
+		_ = json.Unmarshal(payload, &params)
+		if params.TaskID == "" {
+			params.TaskID = id
+		}
+
+		go func() {
+			if err := updateEngine.ApplyUpdate(context.Background(), params); err != nil {
+				log.Error().Err(err).Str("task_id", params.TaskID).Msg("agent self-update failed")
+			} else {
+				log.Info().Str("task_id", params.TaskID).Str("version", params.TargetVersion).Msg("agent self-update completed successfully")
+			}
+		}()
+
+		return map[string]string{"status": "dispatched", "task_id": params.TaskID}
+	})
+
 	client.SetCommandHandler(dispatcher.Handle)
 
 	// On-demand collection runs on the client's goroutine; it reports over the

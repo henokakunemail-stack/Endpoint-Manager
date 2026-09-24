@@ -20,9 +20,11 @@ const (
 	TypeHeartbeat     = "heartbeat"      // periodic keep-alive
 	TypeCommandResult = "command_result" // reply to a server-issued command
 	TypeInventory     = "inventory"      // Fase 2: collection result
+	TypeTermData      = "term.data"      // Fase 5: interactive terminal data stream
+	TypeTermClose     = "term.close"     // Fase 5: interactive terminal closed by agent
 
 	// server -> agent
-	TypeCommand         = "command"           // ask agent to run something
+	TypeCommand          = "command"           // ask agent to run something
 	TypeInventoryCollect = "inventory.collect" // Fase 2: request collection now
 )
 

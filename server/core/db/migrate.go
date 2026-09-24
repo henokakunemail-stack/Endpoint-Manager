@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -12,11 +13,16 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// Migrate applies all embedded SQL migrations in order.
-// Migrations are idempotent (CREATE ... IF NOT EXISTS), which keeps the runner
-// simple and re-runnable — no separate schema_migrations bookkeeping needed yet.
+// Migrate applies all embedded SQL migrations in order, recording applied versions
+// in schema_migrations so each script is executed exactly once.
 func Migrate(d *sqlx.DB) error {
-	// embed.FS always uses slash-separated paths, even on Windows.
+	if _, err := d.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version TEXT PRIMARY KEY,
+		applied_at DATETIME NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
 	names, err := migrationsFS.ReadDir("migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations dir: %w", err)
@@ -30,12 +36,22 @@ func Migrate(d *sqlx.DB) error {
 	sort.Strings(files)
 
 	for _, name := range files {
+		var exists int
+		_ = d.Get(&exists, `SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, name)
+		if exists > 0 {
+			continue
+		}
+
 		stmt, err := migrationsFS.ReadFile("migrations/" + name)
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 		if _, err := d.Exec(string(stmt)); err != nil {
 			return fmt.Errorf("apply migration %s: %w", name, err)
+		}
+		if _, err := d.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+			name, time.Now().UTC()); err != nil {
+			return fmt.Errorf("record migration %s: %w", name, err)
 		}
 	}
 	return nil

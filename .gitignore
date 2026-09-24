@@ -1,11 +1,21 @@
 # Build output
 *.exe
 *.exe~
+server.exe
+agent.exe
 emagent-*
 emserver
 emserver.exe
 emagent
 emagent.exe
+bin/
+tmpagent/
+deploy/bin/
+deploy/*-linux-*
+
+# Frontend build & dependencies
+web-console/dist/
+web-console/node_modules/
 
 # Local runtime data (server state must never be committed)
 data/

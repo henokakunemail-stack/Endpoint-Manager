@@ -1,0 +1,273 @@
+package agentupdate
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"time"
+
+	"github.com/jmoiron/sqlx"
+)
+
+type AgentRelease struct {
+	ID             string    `db:"id" json:"id"`
+	Version        string    `db:"version" json:"version"`
+	OSName         string    `db:"os_name" json:"os_name"`
+	Arch           string    `db:"arch" json:"arch"`
+	FilePath       string    `db:"file_path" json:"file_path"`
+	FileSize       int64     `db:"file_size" json:"file_size"`
+	SHA256Checksum string    `db:"sha256_checksum" json:"sha256_checksum"`
+	Changelog      string    `db:"changelog" json:"changelog"`
+	IsActive       bool      `db:"is_active" json:"is_active"`
+	UploadedBy     string    `db:"uploaded_by" json:"uploaded_by"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+}
+
+type UpdateCampaign struct {
+	ID                 string    `db:"id" json:"id"`
+	Name               string    `db:"name" json:"name"`
+	Description        string    `db:"description" json:"description"`
+	TargetVersion      string    `db:"target_version" json:"target_version"`
+	TargetType         string    `db:"target_type" json:"target_type"`
+	TargetID           string    `db:"target_id" json:"target_id"`
+	BatchSize          int       `db:"batch_size" json:"batch_size"`
+	StaggerIntervalSec int       `db:"stagger_interval_sec" json:"stagger_interval_sec"`
+	Status             string    `db:"status" json:"status"`
+	CreatedBy          string    `db:"created_by" json:"created_by"`
+	CreatedAt          time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type DeviceUpdateTask struct {
+	ID            string     `db:"id" json:"id"`
+	CampaignID    *string    `db:"campaign_id" json:"campaign_id,omitempty"`
+	DeviceID      string     `db:"device_id" json:"device_id"`
+	FromVersion   string     `db:"from_version" json:"from_version"`
+	TargetVersion string     `db:"target_version" json:"target_version"`
+	Status        string     `db:"status" json:"status"`
+	ErrorMessage  string     `db:"error_message" json:"error_message"`
+	DispatchedAt  *time.Time `db:"dispatched_at" json:"dispatched_at,omitempty"`
+	CompletedAt   *time.Time `db:"completed_at" json:"completed_at,omitempty"`
+	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
+}
+
+type Repository struct {
+	db *sqlx.DB
+}
+
+func NewRepository(db *sqlx.DB) *Repository {
+	return &Repository{db: db}
+}
+
+func newID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func (r *Repository) CreateRelease(ctx context.Context, release *AgentRelease) error {
+	if release.ID == "" {
+		release.ID = newID()
+	}
+	now := time.Now().UTC()
+	release.CreatedAt = now
+
+	query := `
+		INSERT INTO agent_releases (
+			id, version, os_name, arch, file_path, file_size, sha256_checksum,
+			changelog, is_active, uploaded_by, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := r.db.ExecContext(ctx, query,
+		release.ID, release.Version, release.OSName, release.Arch, release.FilePath,
+		release.FileSize, release.SHA256Checksum, release.Changelog, release.IsActive,
+		release.UploadedBy, release.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("create release: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) GetRelease(ctx context.Context, id string) (*AgentRelease, error) {
+	var rel AgentRelease
+	err := r.db.GetContext(ctx, &rel, `SELECT * FROM agent_releases WHERE id = ?`, id)
+	if err != nil {
+		return nil, fmt.Errorf("get release %s: %w", id, err)
+	}
+	return &rel, nil
+}
+
+func (r *Repository) GetActiveReleaseForDevice(ctx context.Context, targetVersion, osName, arch string) (*AgentRelease, error) {
+	var rel AgentRelease
+	query := `
+		SELECT * FROM agent_releases
+		WHERE version = ? AND os_name = ? AND arch = ? AND is_active = 1
+		LIMIT 1
+	`
+	err := r.db.GetContext(ctx, &rel, query, targetVersion, osName, arch)
+	if err != nil {
+		return nil, fmt.Errorf("get release for %s/%s/%s: %w", targetVersion, osName, arch, err)
+	}
+	return &rel, nil
+}
+
+func (r *Repository) ListReleases(ctx context.Context) ([]*AgentRelease, error) {
+	var list []*AgentRelease
+	err := r.db.SelectContext(ctx, &list, `SELECT * FROM agent_releases ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list releases: %w", err)
+	}
+	return list, nil
+}
+
+func (r *Repository) CreateCampaign(ctx context.Context, c *UpdateCampaign) error {
+	if c.ID == "" {
+		c.ID = newID()
+	}
+	now := time.Now().UTC()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+	if c.Status == "" {
+		c.Status = "draft"
+	}
+	if c.BatchSize <= 0 {
+		c.BatchSize = 20
+	}
+	if c.StaggerIntervalSec <= 0 {
+		c.StaggerIntervalSec = 30
+	}
+
+	query := `
+		INSERT INTO update_campaigns (
+			id, name, description, target_version, target_type, target_id,
+			batch_size, stagger_interval_sec, status, created_by, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := r.db.ExecContext(ctx, query,
+		c.ID, c.Name, c.Description, c.TargetVersion, c.TargetType, c.TargetID,
+		c.BatchSize, c.StaggerIntervalSec, c.Status, c.CreatedBy, c.CreatedAt, c.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("create campaign: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) GetCampaign(ctx context.Context, id string) (*UpdateCampaign, error) {
+	var c UpdateCampaign
+	err := r.db.GetContext(ctx, &c, `SELECT * FROM update_campaigns WHERE id = ?`, id)
+	if err != nil {
+		return nil, fmt.Errorf("get campaign %s: %w", id, err)
+	}
+	return &c, nil
+}
+
+func (r *Repository) ListCampaigns(ctx context.Context) ([]*UpdateCampaign, error) {
+	var list []*UpdateCampaign
+	err := r.db.SelectContext(ctx, &list, `SELECT * FROM update_campaigns ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list campaigns: %w", err)
+	}
+	return list, nil
+}
+
+func (r *Repository) UpdateCampaignStatus(ctx context.Context, id string, status string) error {
+	now := time.Now().UTC()
+	_, err := r.db.ExecContext(ctx, `UPDATE update_campaigns SET status = ?, updated_at = ? WHERE id = ?`, status, now, id)
+	return err
+}
+
+func (r *Repository) CreateUpdateTask(ctx context.Context, t *DeviceUpdateTask) error {
+	if t.ID == "" {
+		t.ID = newID()
+	}
+	now := time.Now().UTC()
+	t.CreatedAt = now
+	if t.Status == "" {
+		t.Status = "pending"
+	}
+
+	query := `
+		INSERT INTO device_update_tasks (
+			id, campaign_id, device_id, from_version, target_version,
+			status, error_message, dispatched_at, completed_at, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := r.db.ExecContext(ctx, query,
+		t.ID, t.CampaignID, t.DeviceID, t.FromVersion, t.TargetVersion,
+		t.Status, t.ErrorMessage, t.DispatchedAt, t.CompletedAt, t.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("create update task: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) GetUpdateTask(ctx context.Context, id string) (*DeviceUpdateTask, error) {
+	var t DeviceUpdateTask
+	err := r.db.GetContext(ctx, &t, `SELECT * FROM device_update_tasks WHERE id = ?`, id)
+	if err != nil {
+		return nil, fmt.Errorf("get task %s: %w", id, err)
+	}
+	return &t, nil
+}
+
+func (r *Repository) GetLatestTaskForDevice(ctx context.Context, deviceID string) (*DeviceUpdateTask, error) {
+	var t DeviceUpdateTask
+	err := r.db.GetContext(ctx, &t, `
+		SELECT * FROM device_update_tasks
+		WHERE device_id = ?
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("get latest task for %s: %w", deviceID, err)
+	}
+	return &t, nil
+}
+
+func (r *Repository) RecordTaskProgress(ctx context.Context, taskID, status, errMsg string) error {
+	now := time.Now().UTC()
+	var completedAt *time.Time
+	if status == "success" || status == "failed" || status == "rollback" {
+		completedAt = &now
+	}
+
+	query := `
+		UPDATE device_update_tasks
+		SET status = ?, error_message = ?, completed_at = COALESCE(?, completed_at)
+		WHERE id = ?
+	`
+	_, err := r.db.ExecContext(ctx, query, status, errMsg, completedAt, taskID)
+	return err
+}
+
+func (r *Repository) UpdateDeviceAgentVersion(ctx context.Context, deviceID, version string) error {
+	now := time.Now().UTC()
+	_, err := r.db.ExecContext(ctx, `UPDATE devices SET agent_version = ?, updated_at = ? WHERE id = ?`, version, now, deviceID)
+	return err
+}
+
+func (r *Repository) ResolveTargetDevices(ctx context.Context, targetType, targetID string) ([]string, error) {
+	switch targetType {
+	case "all":
+		var ids []string
+		err := r.db.SelectContext(ctx, &ids, `SELECT id FROM devices WHERE status != 'retired'`)
+		return ids, err
+	case "device":
+		return []string{targetID}, nil
+	case "group":
+		var ids []string
+		err := r.db.SelectContext(ctx, &ids, `
+			SELECT m.device_id
+			FROM device_group_members m
+			JOIN devices d ON d.id = m.device_id
+			WHERE m.group_id = ? AND d.status != 'retired'
+		`, targetID)
+		return ids, err
+	default:
+		return nil, fmt.Errorf("unknown target type: %s", targetType)
+	}
+}
