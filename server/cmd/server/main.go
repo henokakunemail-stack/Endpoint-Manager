@@ -310,15 +310,55 @@ func runOfflineSweep(d *sqlx.DB, hub *transport.Hub, threshold time.Duration) {
 			continue
 		}
 		now := time.Now().UTC()
+
+		// Collect first, then write in ONE transaction. A per-device UPDATE
+		// would mean 10,000 separate write transactions every sweep on a large
+		// fleet, reintroducing exactly the SQLite write-lock contention the
+		// HeartbeatFlusher exists to avoid.
+		stale := make([]string, 0, len(ids))
 		for _, id := range ids {
 			if hub.Online(id) {
 				continue // live socket — trust it over last_seen
 			}
-			if _, err := d.Exec(`UPDATE devices SET status = 'offline', updated_at = ? WHERE id = ?`,
-				now, id); err != nil {
-				log.Debug().Err(err).Str("device", id).Msg("offline sweep: mark")
-			}
+			stale = append(stale, id)
 		}
+		if len(stale) == 0 {
+			continue
+		}
+		markOfflineBatch(d, stale, now)
+	}
+}
+
+// markOfflineBatch flips a batch of devices to offline inside a single
+// transaction, so the cost is one fsync per sweep rather than one per device.
+func markOfflineBatch(d *sqlx.DB, ids []string, now time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tx, err := d.BeginTxx(ctx, nil)
+	if err != nil {
+		log.Debug().Err(err).Msg("offline sweep: begin batch")
+		return
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PreparexContext(ctx,
+		`UPDATE devices SET status = 'offline', updated_at = ? WHERE id = ? AND status = 'online'`)
+	if err != nil {
+		log.Debug().Err(err).Msg("offline sweep: prepare batch")
+		return
+	}
+	for _, id := range ids {
+		if _, err := stmt.ExecContext(ctx, now, id); err != nil {
+			log.Debug().Err(err).Str("device", id).Msg("offline sweep: mark")
+		}
+	}
+	if err := stmt.Close(); err != nil {
+		log.Debug().Err(err).Msg("offline sweep: close stmt")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		log.Debug().Err(err).Msg("offline sweep: commit batch")
 	}
 }
 
