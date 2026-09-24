@@ -7,8 +7,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/modules/alerting"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/alerting"
 )
 
 func TestAlerting_RulesAndIncidents(t *testing.T) {

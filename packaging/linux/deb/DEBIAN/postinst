@@ -1,0 +1,33 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Ensure system credentials directory exists with secure permissions
+        mkdir -p /etc/endpoint-agent
+        chmod 700 /etc/endpoint-agent
+
+        # Register and configure systemd service if binary exists
+        if [ -x /usr/bin/endpoint-agent ]; then
+            /usr/bin/endpoint-agent -service install || true
+        fi
+
+        # If systemd is running, reload daemon and enable service
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            systemctl enable endpoint-agent.service || true
+            # Only start if already enrolled with credentials
+            if [ -f /etc/endpoint-agent/creds.json ]; then
+                systemctl restart endpoint-agent.service || true
+            fi
+        fi
+    ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+exit 0

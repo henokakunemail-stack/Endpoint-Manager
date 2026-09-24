@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -32,6 +33,14 @@ type Config struct {
 	BackupInterval time.Duration
 	BackupRetain   int
 
+	// AllowedOriginDomains lists extra browser origins permitted to open a
+	// WebSocket to this server, beyond loopback and same-host. Entries may be
+	// exact ("console.example.com") or wildcard ("*.example.com" matches any
+	// single-or-deeper subdomain, but never the bare apex). Comma-separated in
+	// ALLOWED_ORIGIN_DOMAINS. Empty means "same-host only", which is the safe
+	// default: it never silently trusts a domain nobody configured.
+	AllowedOriginDomains []string
+
 	LogLevel string // zerolog level: debug|info|warn|error
 }
 
@@ -51,7 +60,8 @@ func Load() (Config, error) {
 		BackupDir:         getEnv("BACKUP_DIR", defaultBackupDir(dbPath)),
 		BackupInterval:    getDuration("BACKUP_INTERVAL", time.Hour),
 		BackupRetain:      getEnvInt("BACKUP_RETAIN", 24),
-		LogLevel:          getEnv("LOG_LEVEL", "info"),
+		AllowedOriginDomains: getCSVEnv("ALLOWED_ORIGIN_DOMAINS"),
+		LogLevel:             getEnv("LOG_LEVEL", "info"),
 	}
 	if cfg.JWTSecret == "" {
 		return cfg, fmt.Errorf("JWT_SECRET must be set (generate one, e.g. 32+ random bytes)")
@@ -82,6 +92,23 @@ func getEnvInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+// getCSVEnv reads a comma-separated environment variable into a trimmed,
+// non-empty slice. An unset or empty variable yields nil, which callers treat
+// as "nothing extra allowed" rather than "everything allowed".
+func getCSVEnv(key string) []string {
+	raw, ok := os.LookupEnv(key)
+	if !ok || raw == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, strings.ToLower(p))
+		}
+	}
+	return out
 }
 
 func getDuration(key string, fallback time.Duration) time.Duration {

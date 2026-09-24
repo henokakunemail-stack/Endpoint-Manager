@@ -19,7 +19,7 @@ Write-Host "=== FASE 10 E2E: TASK SCHEDULER & SCRIPT REPOSITORY ===" -Foreground
 
 # 1. Build
 Write-Host "1. Building server binary..."
-Push-Location "D:\Henok\Projects\Desktop Manage"
+Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
 $env:CGO_ENABLED = '0'
 go build -o $serverExe ./server/cmd/server
 if ($LASTEXITCODE -ne 0) { throw "Server compilation failed" }
@@ -138,7 +138,7 @@ try {
 
     # 6. Seed Target Devices
     Write-Host "`n5. Seeding Target Devices..."
-    Push-Location "D:\Henok\Projects\Desktop Manage"
+    Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
     $seedDevices = @"
 package main
 import (

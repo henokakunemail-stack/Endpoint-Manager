@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/core/logger"
-	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/logger"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
 )
 
 // TestHeartbeatFlusher_Scale10KConcurrentAgents is the production readiness
@@ -37,11 +37,12 @@ func TestHeartbeatFlusher_Scale10KConcurrentAgents(t *testing.T) {
 	for i := 0; i < fleetSize; i++ {
 		id := devicemgmt.NewID()
 		ids[i] = id
+		osVersion := "12.04"
 		device := devicemgmt.Device{
 			ID:         id,
 			Hostname:   fmt.Sprintf("SCALE-%05d", i),
 			OSName:     devicemgmt.OSLinux,
-			OSVersion:  "12.04",
+			OSVersion:  &osVersion,
 			Status:     devicemgmt.StatusOffline,
 			EnrolledAt: now,
 			CreatedAt:  now,

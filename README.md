@@ -4,7 +4,7 @@
 [![Pure Go](https://img.shields.io/badge/CGO-Disabled%20(Zero%20CGO)-success.svg)](https://golang.org)
 [![Web Console](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript%20%2B%20Vite-blueviolet.svg)](web-console)
 [![Architecture](https://img.shields.io/badge/Architecture-Single--Binary%20Embedded-orange.svg)](#single-binary-delivery)
-[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](#)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 Enterprise-grade, central endpoint management and security compliance platform architected to manage 500+ to 10,000+ distributed endpoints (Windows, Linux, macOS) across distributed branch offices.
 
@@ -22,7 +22,7 @@ Enterprise-grade, central endpoint management and security compliance platform a
    - Uses `modernc.org/sqlite` for SQLite database operations with zero external C compiler runtime dependencies.
 
 2. **Outbound-Only Branch Network Topology**:
-   - Central server listens over secure HTTPS/WSS (`https://endpoint.esta.co.id` or IP).
+   - Central server listens over secure HTTPS/WSS on whatever hostname you configure (e.g. `https://mgmt.example.com`).
    - Distributed branch endpoints initiate **outbound-only** TLS WebSocket connections.
    - **0 inbound ports** are required on branch firewalls/NAT routers.
    - Automatic reconnect with full jitter backoff (1s - 60s) prevents thundering herd connection storms during network recovery.
@@ -56,7 +56,7 @@ Enterprise-grade, central endpoint management and security compliance platform a
 | **Phase 11** | **Remote Desktop Control** | Outbound reverse screen capture relay (MJPEG/Canvas), mouse click and keyboard input transmission |
 | **Phase 12** | **Network & Web Filter** | Pure-Go DNS sinkholing (0.0.0.0), atomic hosts file manipulation with automatic local DNS cache flush |
 | **Phase 13** | **Agent Self-Update** | Autonomous in-place binary upgrades, SHA-256 pre-execution validation, phased canary wave rollouts |
-| **Phase 14** | **IT Asset & License Management** | Hardware Asset Management (HAM) with IDR valuation, Software Asset Management (SAM) live seat reconciliation |
+| **Phase 14** | **IT Asset & License Management** | Hardware Asset Management (HAM) with configurable currency valuation, Software Asset Management (SAM) live seat reconciliation |
 
 ---
 
@@ -78,7 +78,7 @@ Enterprise-grade, central endpoint management and security compliance platform a
 │       └── update/                 # Autonomous agent binary self-updater
 ├── deploy/                         # Production Ubuntu deployment automation
 │   ├── install-ubuntu.sh           # One-click Ubuntu server setup script
-│   ├── nginx-endpoint.conf         # Hardened Nginx reverse proxy with *.esta.co.id SSL
+│   ├── nginx-endpoint.conf.template# Parameterized Nginx reverse proxy (HTTPS + WebSocket)
 │   ├── endpoint-mgmt.service       # Systemd daemon configuration
 │   └── README-UBUNTU-DEPLOY.md     # Step-by-step production server setup guide
 ├── docs/                           # Architecture specifications & audit reports
@@ -145,32 +145,46 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o agent-darwin-arm64 ./agent/cm
 
 ---
 
-## 🌐 Production Ubuntu Server Deployment (`*.esta.co.id`)
+## 🌐 Production Server Deployment
 
-The system includes a complete automated deployment bundle located in `deploy/`:
+Nothing in this repository is tied to a particular domain. Every hostname,
+certificate path, and credential is a parameter you supply.
 
-1. Copy the repository or Linux server binary to your Ubuntu server:
-   ```bash
-   scp endpoint-mgmt-server user@your-server-ip:/opt/endpoint-mgmt/
-   ```
+### Linux (Ubuntu / Debian)
 
-2. Run the automated installer:
-   ```bash
-   cd deploy
-   sudo bash install-ubuntu.sh
-   ```
+The `deploy/` bundle installs the server, an isolated system user, a hardened
+systemd unit, and a parameterized nginx reverse proxy:
 
-3. Deploy Wildcard SSL Certificate (`*.esta.co.id`):
-   ```bash
-   sudo cp star.esta.co.id.crt /etc/ssl/certs/esta.co.id.crt
-   sudo cp star.esta.co.id.key /etc/ssl/private/esta.co.id.key
-   sudo nginx -t && sudo systemctl reload nginx
-   ```
+```bash
+# 1. Copy the bundle to the server
+scp -r ./deploy/* user@your-server-ip:/tmp/deploy/
 
-4. Nginx reverse proxy configuration (`deploy/nginx-endpoint.conf`):
-   - Enforces modern TLS 1.2 and TLS 1.3 ciphers.
-   - Proxies standard HTTPS REST API calls.
-   - Supports long-lived full-duplex WebSocket connections (`Upgrade $http_upgrade`) with 24-hour read/send timeouts.
+# 2. Run the installer with YOUR hostname
+cd /tmp/deploy
+sudo ./install-ubuntu.sh --domain mgmt.example.com
+```
+
+The installer writes the nginx site by substituting `__DOMAIN__` and
+`__SSL_DIR__` into `deploy/nginx-endpoint.conf.template`, which:
+- Enforces TLS 1.2 and TLS 1.3 with modern ciphers.
+- Proxies standard HTTPS REST API calls.
+- Supports long-lived full-duplex WebSocket connections (`Upgrade $http_upgrade`)
+  with 24-hour read/send timeouts, so agent sockets survive normal idle timeouts.
+
+### Windows Server
+
+There is no scripted installer for Windows Server — the server binary is a
+plain console-free service binary. See
+[`docs/installation/server-windows.md`](docs/installation/server-windows.md)
+for the full procedure.
+
+### Full guides
+
+| Guide | Covers |
+|---|---|
+| [`docs/installation/server-linux.md`](docs/installation/server-linux.md) | Ubuntu/Debian: systemd, TLS, firewall, backup verification, upgrade & rollback, hardening |
+| [`docs/installation/server-windows.md`](docs/installation/server-windows.md) | Windows Server: service registration, TLS, firewall, backup, upgrade |
+| [`deploy/README-UBUNTU-DEPLOY.md`](deploy/README-UBUNTU-DEPLOY.md) | Short-form Ubuntu quickstart |
 
 ---
 

@@ -1,34 +1,42 @@
-# /etc/nginx/sites-available/endpoint.esta.co.id
-# Nginx Configuration for Endpoint Management Enterprise Platform
-# Supports REST API, Embedded Web Console SPA, and Persistent WebSocket Connections
+# Nginx site template for the Endpoint Management server.
+#
+# install-ubuntu.sh substitutes the placeholders below:
+#   __DOMAIN__   -> the public hostname, e.g. mgmt.example.com
+#   __SSL_DIR__  -> the certificate directory, e.g. /etc/ssl/endpoint-mgmt
+#
+# To install by hand, copy this file, replace the placeholders, and point
+# /etc/nginx/sites-enabled at it.
+#
+# Handles three things: the REST API, the embedded Web Console SPA, and the
+# long-lived WebSocket channels used by agents and interactive sessions.
 
 upstream endpoint_backend {
     server 127.0.0.1:8443;
     keepalive 64;
 }
 
-# Redirect HTTP to HTTPS
+# Redirect plain HTTP to HTTPS
 server {
     listen 80;
     listen [::]:80;
-    server_name endpoint.esta.co.id;
+    server_name __DOMAIN__;
 
     location / {
         return 301 https://$host$request_uri;
     }
 }
 
-# Main HTTPS & WSS Server
+# Main HTTPS & WSS server
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name endpoint.esta.co.id;
+    server_name __DOMAIN__;
 
-    # Wildcard Certificate *.esta.co.id
-    ssl_certificate     /etc/ssl/esta/esta.co.id.fullchain.crt;
-    ssl_certificate_key /etc/ssl/esta/esta.co.id.key;
+    # Certificate paths. A wildcard certificate may be copied to this name.
+    ssl_certificate     __SSL_DIR__/__DOMAIN__.fullchain.crt;
+    ssl_certificate_key __SSL_DIR__/__DOMAIN__.key;
 
-    # SSL Security & Hardening (TLS 1.2 & TLS 1.3 only)
+    # TLS 1.2 and 1.3 only
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
@@ -36,17 +44,16 @@ server {
     ssl_session_cache shared:SSL:50m;
     ssl_session_tickets off;
 
-    # Security Headers
+    # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer-when-downgrade" always;
 
-    # Allow large package uploads (Software Deployment & Agent Releases)
+    # Large package uploads (software deployment and agent releases)
     client_max_body_size 1024M;
     client_body_buffer_size 128k;
 
-    # Standard REST API and Web Console SPA
+    # REST API and Web Console SPA
     location / {
         proxy_pass http://endpoint_backend;
         proxy_set_header Host $host;
@@ -58,11 +65,12 @@ server {
         proxy_send_timeout 60s;
     }
 
-    # Persistent WebSocket Channels:
-    # 1. /api/agent/connect                    (Persistent Branch Agent Outbound WebSocket)
-    # 2. /api/devices/{id}/terminal/ws         (Interactive Remote Shell)
-    # 3. /api/devices/{id}/remotecontrol/ws    (Remote Desktop Screen Relay)
-    location ~* ^/api/(agent/connect|devices/.*/(terminal|remotecontrol)/ws) {
+    # Persistent WebSocket channels:
+    #   /api/agent/connect                 outbound agent socket
+    #   /api/devices/{id}/terminal/ws      interactive remote shell
+    #   /api/devices/{id}/remotecontrol/ws remote control screen relay
+    #   /api/agent/devices/{id}/remotecontrol/ws  agent side of the relay
+    location ~* ^/api/(agent/connect|agent/devices/.*/remotecontrol/ws|devices/.*/(terminal|remotecontrol)/ws) {
         proxy_pass http://endpoint_backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -72,7 +80,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Disable buffering and set 24h timeouts for uninterrupted persistent agent sockets
+        # No buffering, 24h timeouts: agent sockets are expected to stay open.
         proxy_buffering off;
         proxy_read_timeout 86400s;
         proxy_send_timeout 86400s;

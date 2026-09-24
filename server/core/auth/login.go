@@ -10,7 +10,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog/log"
 
-	"github.com/endpoint-mgmt/server/core/audit"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/audit"
 )
 
 // chiRouter is the subset of *chi.Mux used by Register. Declaring it as an

@@ -1,0 +1,51 @@
+#!/bin/sh
+# postinstall script for Endpoint Management Agent macOS PKG
+set -e
+
+BIN="/usr/local/bin/endpoint-agent"
+PLIST="/Library/LaunchDaemons/com.endpoint-mgmt.agent.plist"
+CONFIG_DIR="/etc/endpoint-agent"
+CREDS_FILE="$CONFIG_DIR/creds.json"
+
+# Ensure directories exist
+mkdir -p /usr/local/bin
+mkdir -p "$CONFIG_DIR"
+chmod 700 "$CONFIG_DIR"
+
+if [ -f "$BIN" ]; then
+    chmod 755 "$BIN"
+fi
+
+# Write launchd daemon plist if not already present
+cat <<'EOF' > "$PLIST"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.endpoint-mgmt.agent</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/endpoint-agent</string>
+		<string>-creds</string>
+		<string>/etc/endpoint-agent/creds.json</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/var/log/endpoint-agent.log</string>
+	<key>StandardErrorPath</key>
+	<string>/var/log/endpoint-agent.err</string>
+</dict>
+</plist>
+EOF
+
+chmod 644 "$PLIST"
+chown root:wheel "$PLIST"
+
+# Load daemon into launchd
+launchctl load -w "$PLIST" 2>/dev/null || true
+
+exit 0

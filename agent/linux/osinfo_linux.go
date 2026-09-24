@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/endpoint-mgmt/agent/shared/osinfo"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/osinfo"
 )
 
 const agentVersion = "0.1.0"

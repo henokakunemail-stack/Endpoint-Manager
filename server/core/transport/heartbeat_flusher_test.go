@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/core/logger"
-	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/logger"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
 )
 
 func init() {

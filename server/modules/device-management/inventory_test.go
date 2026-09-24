@@ -10,7 +10,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/endpoint-mgmt/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
 )
 
 // newTestDB returns a migrated SQLite DB in a temp dir, for inventory tests.

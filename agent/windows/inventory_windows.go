@@ -12,13 +12,13 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/endpoint-mgmt/agent/shared/inventory"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/inventory"
 )
 
 // winCollector implements inventory.Collector for Windows.
 //
 // Data sources, chosen after verifying each API exists in
-// golang.org/x/sys@v0.48.0 (phase-2 plan §1.6):
+// golang.org/x/sys@v0.48.0 (phase-2 plan Â§1.6):
 //   - software list: registry Uninstall keys (fast, reliable, same source as
 //     the "Programs and Features" control panel)
 //   - disk volumes:  GetLogicalDriveStrings + GetVolumeInformation + GetDiskFreeSpaceEx

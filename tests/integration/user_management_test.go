@@ -7,10 +7,10 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/endpoint-mgmt/server/core/auth"
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/core/rbac"
-	usermgmt "github.com/endpoint-mgmt/server/modules/user-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
+	usermgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/user-management"
 )
 
 func TestUserManagement_CRUD(t *testing.T) {

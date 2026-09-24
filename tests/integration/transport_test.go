@@ -28,12 +28,12 @@ import (
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/endpoint-mgmt/agent/shared/transport"
-	"github.com/endpoint-mgmt/server/core/auth"
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/core/logger"
-	srvtransport "github.com/endpoint-mgmt/server/core/transport"
-	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/transport"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/logger"
+	srvtransport "github.com/henokakunemail-stack/Endpoint-Manager/server/core/transport"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
 )
 
 func init() { logger.Init("disabled") }
@@ -134,6 +134,7 @@ func TestE2EEnrollConnectCommand(t *testing.T) {
 	plainToken := devicemgmt.GenerateToken()
 	now := time.Now().UTC()
 	tokenHash := devicemgmt.HashToken(plainToken) // NULL once the agent enrolls
+	site := "cabang-test"
 	device := devicemgmt.Device{
 		ID:                  devicemgmt.NewID(),
 		Hostname:            "E2E-PC-01",
@@ -141,7 +142,7 @@ func TestE2EEnrollConnectCommand(t *testing.T) {
 		Status:              devicemgmt.StatusOffline,
 		EnrolledAt:          now,
 		EnrollmentTokenHash: &tokenHash,
-		Site:                "cabang-test",
+		Site:                &site,
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
@@ -176,7 +177,7 @@ func TestE2EEnrollConnectCommand(t *testing.T) {
 	}})
 	if err := waitFor(func() bool {
 		d, err := e.repo.GetByID(ctx, device.ID)
-		return err == nil && d.AgentVersion == "0.1.0" && d.OSVersion == "10.0.22631"
+		return err == nil && d.AgentVersionString() == "0.1.0" && d.OSVersionString() == "10.0.22631"
 	}); err != nil {
 		t.Fatalf("agent hello OS info not persisted: %v", err)
 	}
@@ -186,8 +187,8 @@ func TestE2EEnrollConnectCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get device: %v", err)
 	}
-	if dev.AgentVersion != "0.1.0" || dev.OSVersion != "10.0.22631" {
-		t.Fatalf("hello not persisted: agent=%q os=%q", dev.AgentVersion, dev.OSVersion)
+	if dev.AgentVersionString() != "0.1.0" || dev.OSVersionString() != "10.0.22631" {
+		t.Fatalf("hello not persisted: agent=%q os=%q", dev.AgentVersionString(), dev.OSVersionString())
 	}
 	if !e.hub.Online(device.ID) {
 		t.Fatal("device must be online in the hub")

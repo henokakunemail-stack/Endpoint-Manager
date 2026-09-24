@@ -20,16 +20,16 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/endpoint-mgmt/agent/shared/enrollment"
-	"github.com/endpoint-mgmt/agent/shared/inventory"
-	"github.com/endpoint-mgmt/agent/shared/networkfilter"
-	"github.com/endpoint-mgmt/agent/shared/patch"
-	"github.com/endpoint-mgmt/agent/shared/remotecontrol"
-	"github.com/endpoint-mgmt/agent/shared/remoteexec"
-	"github.com/endpoint-mgmt/agent/shared/service"
-	"github.com/endpoint-mgmt/agent/shared/software"
-	"github.com/endpoint-mgmt/agent/shared/transport"
-	"github.com/endpoint-mgmt/agent/shared/update"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/enrollment"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/inventory"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/networkfilter"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/patch"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/remotecontrol"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/remoteexec"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/service"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/software"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/transport"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/update"
 )
 
 // osProvider is supplied per-OS by the build-tagged package for the target platform.

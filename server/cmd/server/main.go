@@ -18,26 +18,26 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog/log"
 
-	"github.com/endpoint-mgmt/server/core/audit"
-	"github.com/endpoint-mgmt/server/core/auth"
-	"github.com/endpoint-mgmt/server/core/config"
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/core/logger"
-	"github.com/endpoint-mgmt/server/core/rbac"
-	"github.com/endpoint-mgmt/server/core/transport"
-	"github.com/endpoint-mgmt/server/modules/dashboard"
-	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
-	patchmgmt "github.com/endpoint-mgmt/server/modules/patch-management"
-	remoteexec "github.com/endpoint-mgmt/server/modules/remote-exec"
-	softwaredeployment "github.com/endpoint-mgmt/server/modules/software-deployment"
-	"github.com/endpoint-mgmt/server/modules/reports"
-	usermgmt "github.com/endpoint-mgmt/server/modules/user-management"
-	"github.com/endpoint-mgmt/server/modules/alerting"
-	"github.com/endpoint-mgmt/server/modules/agentupdate"
-	"github.com/endpoint-mgmt/server/modules/assetlicense"
-	"github.com/endpoint-mgmt/server/modules/networkfilter"
-	"github.com/endpoint-mgmt/server/modules/remotecontrol"
-	"github.com/endpoint-mgmt/server/modules/taskscheduler"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/audit"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/config"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/logger"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/transport"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/dashboard"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
+	patchmgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/patch-management"
+	remoteexec "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/remote-exec"
+	softwaredeployment "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/software-deployment"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/reports"
+	usermgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/user-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/alerting"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/agentupdate"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/assetlicense"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/networkfilter"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/remotecontrol"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/taskscheduler"
 )
 
 func main() {
@@ -86,14 +86,19 @@ func main() {
 	enrollH := devicemgmt.NewEnrollmentHandler(deviceRepo, database)
 	enrollH.Register(r)
 
+	// One origin policy, built once from ALLOWED_ORIGIN_DOMAINS, shared by every
+	// WebSocket endpoint so the console is trusted consistently.
+	checkOrigin := auth.NewOriginChecker(cfg.AllowedOriginDomains)
+
 	// Fase 5: remote command execution and interactive terminal relay.
 	remoteExecRepo := remoteexec.NewRepository(database)
 	termRelay := remoteexec.NewTerminalRelay()
-	remoteExecH := remoteexec.NewHandler(remoteExecRepo, hub, termRelay, &auditAdapter{db: database}, jwtSvc, jwtSvc.RequireAuth, deviceRepo)
+	remoteExecH := remoteexec.NewHandler(remoteExecRepo, hub, termRelay, &auditAdapter{db: database}, jwtSvc, jwtSvc.RequireAuth, deviceRepo, checkOrigin)
 
 	wsH := transport.NewWSHandler(hub, deviceRepo, database, cfg.AgentOfflineAfter).
 		WithInventory(invH).
-		WithTerminal(termRelay)
+		WithTerminal(termRelay).
+		WithOriginChecker(checkOrigin)
 	defer wsH.Close()
 
 	r.Handle("/api/agent/connect", wsH)
@@ -150,7 +155,7 @@ func main() {
 	// Fase 11: remote control & screen capture relay.
 	rcRepo := remotecontrol.NewRepository(database)
 	rcRelay := remotecontrol.NewRelayManager(rcRepo)
-	rcH := remotecontrol.NewHandler(rcRepo, rcRelay, hub, deviceRepo, &auditAdapter{db: database}, jwtSvc, jwtSvc.RequireAuth)
+	rcH := remotecontrol.NewHandler(rcRepo, rcRelay, hub, deviceRepo, &auditAdapter{db: database}, jwtSvc, jwtSvc.RequireAuth, checkOrigin)
 	rcH.Register(r)
 
 	// Fase 12: network & web filter security policies.

@@ -3,8 +3,8 @@
 package main
 
 import (
-	"github.com/endpoint-mgmt/agent/shared/inventory"
-	winagent "github.com/endpoint-mgmt/agent/windows"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/inventory"
+	winagent "github.com/henokakunemail-stack/Endpoint-Manager/agent/windows"
 )
 
 // newInventoryCollector returns the Windows inventory collector.

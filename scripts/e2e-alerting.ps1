@@ -19,7 +19,7 @@ Write-Host "=== FASE 9 E2E: ALERTING & NOTIFICATION ENGINE ===" -ForegroundColor
 
 # 1. Build
 Write-Host "1. Building server binary..."
-Push-Location "D:\Henok\Projects\Desktop Manage"
+Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
 $env:CGO_ENABLED = '0'
 go build -o $serverExe ./server/cmd/server
 if ($LASTEXITCODE -ne 0) { throw "Server compilation failed" }
@@ -117,7 +117,7 @@ try {
 
     # 5. Seed Device Telemetry for Alert Evaluation
     Write-Host "`n4. Seeding Telemetry Data for Evaluation..."
-    Push-Location "D:\Henok\Projects\Desktop Manage"
+    Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
     $seedCode = @"
 package main
 import (

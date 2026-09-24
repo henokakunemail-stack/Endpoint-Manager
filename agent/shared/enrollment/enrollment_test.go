@@ -70,7 +70,7 @@ func TestLoadSave(t *testing.T) {
 	testCreds := Credentials{
 		DeviceID:     "dev-abc",
 		DeviceSecret: "sec-123",
-		ServerURL:    "https://endpoint.esta.co.id",
+		ServerURL:    "https://mgmt.example.com",
 	}
 	if err := Save(p, testCreds); err != nil {
 		t.Fatalf("Save failed: %v", err)

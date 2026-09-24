@@ -1,4 +1,4 @@
-module github.com/endpoint-mgmt
+module github.com/henokakunemail-stack/Endpoint-Manager
 
 go 1.26.8
 

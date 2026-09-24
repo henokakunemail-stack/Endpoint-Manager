@@ -10,9 +10,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	agentfilter "github.com/endpoint-mgmt/agent/shared/networkfilter"
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/modules/networkfilter"
+	agentfilter "github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/networkfilter"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/networkfilter"
 )
 
 func TestNetworkFilter_PolicyAndRules(t *testing.T) {

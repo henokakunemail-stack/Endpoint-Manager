@@ -12,10 +12,10 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
-	"github.com/endpoint-mgmt/server/core/auth"
-	"github.com/endpoint-mgmt/server/core/rbac"
-	"github.com/endpoint-mgmt/server/core/transport"
-	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/transport"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
 )
 
 type AuditLogger interface {
@@ -46,7 +46,11 @@ func NewHandler(
 	jwtSvc *auth.JWTService,
 	authMiddleware func(http.Handler) http.Handler,
 	devices DeviceValidator,
+	checkOrigin auth.OriginChecker,
 ) *Handler {
+	if checkOrigin == nil {
+		checkOrigin = auth.ValidateWebSocketOrigin
+	}
 	return &Handler{
 		repo:           repo,
 		hub:            hub,
@@ -56,7 +60,7 @@ func NewHandler(
 		authMiddleware: authMiddleware,
 		devices:        devices,
 		upgrader: websocket.Upgrader{
-			CheckOrigin: auth.ValidateWebSocketOrigin,
+			CheckOrigin: checkOrigin,
 		},
 	}
 }

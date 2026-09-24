@@ -20,7 +20,7 @@ Semua item di bawah dicek langsung di mesin pengembangan sebelum rekomendasi dib
 | Node.js | v24.20.0 (npm 11.19.0) | Web console bisa langsung dimulai |
 | Network egress | proxy.golang.org:443 & registry.npmjs.org:443 reachable; tanpa HTTP proxy env | Boleh ambil dependency publik |
 | Disk | D: 553.0 GB free (C: 187.7 GB free) | Cukup untuk repo, module cache, artifacts |
-| GOPATH | C:\Users\henok\go | Module cache standar |
+| GOPATH | platform default | Module cache standar |
 | Docker CLI | terinstal (Docker Desktop) | Binary ada, tapi daemon mati (lihat 1.2) |
 
 ### 1.2 Yang TIDAK tersedia — membatasi pilihan teknologi

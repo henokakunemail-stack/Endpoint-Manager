@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/endpoint-mgmt/server/core/audit"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/audit"
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog/log"
 )

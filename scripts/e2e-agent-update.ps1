@@ -39,7 +39,7 @@ Write-Host "=== FASE 13 E2E: AGENT SELF-UPDATE & ROLLOUT MANAGEMENT ===" -Foregr
 
 # 1. Build server
 Write-Host "1. Building server binary (CGO_ENABLED=0)..."
-Push-Location "D:\Henok\Projects\Desktop Manage"
+Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
 $env:CGO_ENABLED = '0'
 go build -o $serverExe ./server/cmd/server
 if ($LASTEXITCODE -ne 0) { throw "Server compilation failed" }

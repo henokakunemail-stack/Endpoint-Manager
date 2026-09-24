@@ -42,7 +42,6 @@ func (m *linuxManager) Install() error {
 
 	unitContent := fmt.Sprintf(`[Unit]
 Description=%s
-Documentation=https://endpoint.esta.co.id
 After=network-online.target
 Wants=network-online.target
 

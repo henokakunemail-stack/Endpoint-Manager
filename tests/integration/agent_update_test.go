@@ -13,9 +13,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	agentupdate "github.com/endpoint-mgmt/agent/shared/update"
-	"github.com/endpoint-mgmt/server/core/db"
-	serverupdate "github.com/endpoint-mgmt/server/modules/agentupdate"
+	agentupdate "github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/update"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	serverupdate "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/agentupdate"
 )
 
 func TestAgentUpdate_ReleaseLifecycle(t *testing.T) {

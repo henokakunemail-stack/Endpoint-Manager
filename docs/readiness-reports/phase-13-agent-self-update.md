@@ -71,7 +71,7 @@ Server is HEALTHY and listening.
   [PASS] Downloaded binary hash matches release SHA-256: 511a7968d61083d964cf52f073698a4ed382f20f2806e7f11009fe56783d928b
 
 10. Simulating Atomic Binary Swap (Rename Running Exe & Move New)...
-  [PASS] Atomic swap completed successfully. Backup preserved at C:\Users\henok\AppData\Local\Temp\mock_running_agent.exe.old
+  [PASS] Atomic swap completed successfully. Backup preserved at <TEMP_DIR>/mock_running_agent.exe.old
 
 11. Agent Reporting Success Status and Version Promotion...
   [PASS] Device agent_version successfully promoted to: 1.2.0

@@ -1,6 +1,5 @@
 [Unit]
-Description=Enterprise Endpoint Management Central Server
-Documentation=https://endpoint.esta.co.id
+Description=Endpoint Management Central Server
 After=network.target network-online.target
 Wants=network-online.target
 

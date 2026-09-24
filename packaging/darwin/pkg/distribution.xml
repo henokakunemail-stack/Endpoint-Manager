@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>Endpoint Management Agent</title>
+    <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.endpoint-mgmt.agent"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="com.endpoint-mgmt.agent" visible="false">
+        <pkg-ref id="com.endpoint-mgmt.agent"/>
+    </choice>
+    <pkg-ref id="com.endpoint-mgmt.agent" version="1.0.0" onConclusion="none">endpoint-agent-component.pkg</pkg-ref>
+</installer-gui-script>

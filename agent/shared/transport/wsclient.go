@@ -16,7 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
-	"github.com/endpoint-mgmt/agent/shared/inventory"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/inventory"
 )
 
 // Client is the persistent agent->server connection with automatic reconnect.

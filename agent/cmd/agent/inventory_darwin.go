@@ -3,8 +3,8 @@
 package main
 
 import (
-	"github.com/endpoint-mgmt/agent/shared/inventory"
-	macosagent "github.com/endpoint-mgmt/agent/macos"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/inventory"
+	macosagent "github.com/henokakunemail-stack/Endpoint-Manager/agent/macos"
 )
 
 // newInventoryCollector returns the macOS inventory collector.

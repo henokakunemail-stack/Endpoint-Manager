@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/endpoint-mgmt/server/core/rbac"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
 )
 
 type contextKey string

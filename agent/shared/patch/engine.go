@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/endpoint-mgmt/agent/shared/transport"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/transport"
 )
 
 type Engine struct {

@@ -23,7 +23,7 @@ Write-Host "=== FASE 5 E2E: REMOTE EXECUTION & LIVE INTERACTIVE TERMINAL ===" -F
 
 # 1. Build server and agent binaries
 Write-Host "1. Building server and agent binaries..."
-Push-Location "D:\Henok\Projects\Desktop Manage"
+Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
 $env:CGO_ENABLED = '0'
 
 go build -o $serverExe ./server/cmd/server
@@ -86,13 +86,13 @@ try {
     $bcryptHash = '$2a$10$WqB3j88kE.h/vD8YgA0pP.iF6V26d3YQ4v3XFw1hLqj6n2lD8U1C.' # dummy hash or use bcrypt tool
     # Wait, we can test RBAC using Go integration test or curl with login!
     # Let's insert a viewer and technician user directly into $dbPath using a quick SQLite command or python/go query
-    Push-Location "D:\Henok\Projects\Desktop Manage"
+    Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
     $createUserCode = @"
 package main
 import (
     "time"
-    "github.com/endpoint-mgmt/server/core/auth"
-    "github.com/endpoint-mgmt/server/core/rbac"
+    "github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+    "github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
     "github.com/jmoiron/sqlx"
     _ "modernc.org/sqlite"
 )

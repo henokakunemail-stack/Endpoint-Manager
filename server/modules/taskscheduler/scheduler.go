@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/endpoint-mgmt/server/core/transport"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/transport"
 )
 
 type Hub interface {

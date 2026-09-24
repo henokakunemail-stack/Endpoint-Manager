@@ -12,9 +12,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/endpoint-mgmt/server/core/audit"
-	"github.com/endpoint-mgmt/server/core/auth"
-	"github.com/endpoint-mgmt/server/core/rbac"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/audit"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
 )
 
 // inventoryHandler exposes the Fase 2 API: inventory storage and retrieval,

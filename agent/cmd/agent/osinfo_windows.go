@@ -3,8 +3,8 @@
 package main
 
 import (
-	"github.com/endpoint-mgmt/agent/shared/osinfo"
-	winagent "github.com/endpoint-mgmt/agent/windows"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/osinfo"
+	winagent "github.com/henokakunemail-stack/Endpoint-Manager/agent/windows"
 )
 
 // newOSInfoProvider returns the Windows implementation.

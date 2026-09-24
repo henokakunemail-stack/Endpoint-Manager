@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/endpoint-mgmt/server/core/auth"
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/core/rbac"
-	"github.com/endpoint-mgmt/server/core/transport"
-	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
-	remoteexec "github.com/endpoint-mgmt/server/modules/remote-exec"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/transport"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
+	remoteexec "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/remote-exec"
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
 )
@@ -77,7 +77,7 @@ func newRemoteExecEnv(t *testing.T) (*httptest.Server, *sqlx.DB, *auth.JWTServic
 	// Convert hub to *transport.Hub if needed, or wrap. Here we provide the handler
 	// which accepts transport.Hub, so we can initialize a real Hub
 	realHub := transport.NewHub()
-	h := remoteexec.NewHandler(execRepo, realHub, relay, auditMock, jwtSvc, jwtSvc.RequireAuth, deviceRepo)
+	h := remoteexec.NewHandler(execRepo, realHub, relay, auditMock, jwtSvc, jwtSvc.RequireAuth, deviceRepo, nil)
 
 	r := chi.NewRouter()
 	h.Register(r)

@@ -19,7 +19,7 @@ Write-Host "=== FASE 8 E2E: REPORTS & EXPORT ENGINE ===" -ForegroundColor Cyan
 
 # 1. Build
 Write-Host "1. Building server binary..."
-Push-Location "D:\Henok\Projects\Desktop Manage"
+Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
 $env:CGO_ENABLED = '0'
 go build -o $serverExe ./server/cmd/server
 if ($LASTEXITCODE -ne 0) { throw "Server compilation failed" }
@@ -60,13 +60,13 @@ try {
     Write-Host "  [PASS] Admin JWT issued successfully" -ForegroundColor Green
 
     # Create viewer
-    Push-Location "D:\Henok\Projects\Desktop Manage"
+    Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
     $createUserCode = @"
 package main
 import (
     "time"
-    "github.com/endpoint-mgmt/server/core/auth"
-    "github.com/endpoint-mgmt/server/core/rbac"
+    "github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+    "github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
     "github.com/jmoiron/sqlx"
     _ "modernc.org/sqlite"
 )

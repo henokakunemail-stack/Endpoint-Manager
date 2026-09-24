@@ -7,8 +7,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/modules/assetlicense"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/assetlicense"
 )
 
 func TestAssetManagement_Lifecycle(t *testing.T) {

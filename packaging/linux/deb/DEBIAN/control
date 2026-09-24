@@ -1,0 +1,11 @@
+Package: endpoint-agent
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: amd64
+Maintainer: Enterprise Endpoint Management Maintainers
+Depends: systemd, ca-certificates
+Description: Enterprise Endpoint Management Agent
+ Pure-Go lightweight agent daemon that communicates via outbound-only
+ WebSocket to central management server for hardware/software inventory,
+ remote execution, patch management, and security compliance.

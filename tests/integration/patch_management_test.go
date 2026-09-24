@@ -9,8 +9,8 @@ import (
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 
-	"github.com/endpoint-mgmt/server/core/db"
-	patchmgmt "github.com/endpoint-mgmt/server/modules/patch-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	patchmgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/patch-management"
 )
 
 func TestPatchManagement_RBAC(t *testing.T) {

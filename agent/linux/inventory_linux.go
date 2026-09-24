@@ -12,7 +12,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/endpoint-mgmt/agent/shared/inventory"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/inventory"
 )
 
 // linuxCollector implements inventory.Collector for Linux.
@@ -273,7 +273,7 @@ func (c *linuxCollector) collectOSDetail() inventory.OSDetail {
 
 // utsString converts a fixed-size [65]int8 array from uname to a Go string.
 // syscall.Utsname fields are [65]int8 on all current Linux GOARCH values
-// (verified amd64 and arm64 in Go 1.26). The int8→byte cast is safe because
+// (verified amd64 and arm64 in Go 1.26). The int8â†’byte cast is safe because
 // the values are ASCII characters (0-127).
 func utsString(b [65]int8) string {
 	out := make([]byte, 0, len(b))

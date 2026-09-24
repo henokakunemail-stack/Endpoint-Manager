@@ -7,9 +7,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	agentrc "github.com/endpoint-mgmt/agent/shared/remotecontrol"
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/modules/remotecontrol"
+	agentrc "github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/remotecontrol"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/remotecontrol"
 )
 
 func TestRemoteControl_SessionLifecycle(t *testing.T) {

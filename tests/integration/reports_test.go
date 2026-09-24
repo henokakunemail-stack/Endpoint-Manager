@@ -7,8 +7,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/modules/reports"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/modules/reports"
 )
 
 func TestReports_Aggregations(t *testing.T) {

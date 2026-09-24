@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/core/rbac"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
 )

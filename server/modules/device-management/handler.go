@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/endpoint-mgmt/server/core/audit"
-	"github.com/endpoint-mgmt/server/core/auth"
-	"github.com/endpoint-mgmt/server/core/rbac"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/audit"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
 )
@@ -61,9 +61,9 @@ func toDTO(d Device) deviceDTO {
 		_ = json.Unmarshal([]byte(*d.Capabilities), &caps)
 	}
 	return deviceDTO{
-		ID: d.ID, Hostname: d.Hostname, OSName: d.OSName, OSVersion: d.OSVersion,
-		AgentVersion: d.AgentVersion, Status: d.Status, LastSeenAt: d.LastSeenAt,
-		Site: d.Site, EnrolledAt: d.EnrolledAt,
+		ID: d.ID, Hostname: d.Hostname, OSName: d.OSName, OSVersion: d.OSVersionString(),
+		AgentVersion: d.AgentVersionString(), Status: d.Status, LastSeenAt: d.LastSeenAt,
+		Site: d.SiteValue(), EnrolledAt: d.EnrolledAt,
 		RetiredAt: d.RetiredAt, Capabilities: caps,
 	}
 }
@@ -167,6 +167,10 @@ func (h *Handler) createEnrollToken(w http.ResponseWriter, r *http.Request) {	va
 	plain := GenerateToken()
 	now := time.Now().UTC()
 	tokenHash := HashToken(plain) // consumed to NULL once the agent enrolls
+	var site *string
+	if req.Site != "" {
+		site = &req.Site
+	}
 	dev := Device{
 		ID:                  NewID(),
 		Hostname:            req.Hostname,
@@ -174,7 +178,7 @@ func (h *Handler) createEnrollToken(w http.ResponseWriter, r *http.Request) {	va
 		Status:              StatusOffline,
 		EnrolledAt:          now,
 		EnrollmentTokenHash: &tokenHash,
-		Site:                req.Site,
+		Site:                site,
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}

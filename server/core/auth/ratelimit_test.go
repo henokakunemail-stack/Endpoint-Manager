@@ -77,7 +77,7 @@ func TestValidateWebSocketOrigin(t *testing.T) {
 		{
 			name:    "empty origin (native agent / CLI)",
 			origin:  "",
-			host:    "endpoint.esta.co.id",
+			host:    "mgmt.example.com",
 			allowed: true,
 		},
 		{
@@ -93,33 +93,21 @@ func TestValidateWebSocketOrigin(t *testing.T) {
 			allowed: true,
 		},
 		{
-			name:    "wildcard domain esta.co.id sub-domain",
-			origin:  "https://endpoint.esta.co.id",
-			host:    "endpoint.esta.co.id:443",
-			allowed: true,
-		},
-		{
-			name:    "wildcard domain console.esta.co.id",
-			origin:  "https://console.esta.co.id",
-			host:    "endpoint.esta.co.id",
-			allowed: true,
-		},
-		{
 			name:    "same host origin",
 			origin:  "https://corp-mgmt.internal:8443",
 			host:    "corp-mgmt.internal:8443",
 			allowed: true,
 		},
 		{
-			name:    "malicious external origin",
-			origin:  "https://evil-attacker.com",
-			host:    "endpoint.esta.co.id",
+			name:    "unconfigured domain is rejected by default",
+			origin:  "https://console.example.com",
+			host:    "mgmt.example.com",
 			allowed: false,
 		},
 		{
-			name:    "subdomain spoofing attempt",
-			origin:  "https://esta.co.id.attacker.com",
-			host:    "endpoint.esta.co.id",
+			name:    "malicious external origin",
+			origin:  "https://evil-attacker.com",
+			host:    "mgmt.example.com",
 			allowed: false,
 		},
 	}
@@ -136,6 +124,85 @@ func TestValidateWebSocketOrigin(t *testing.T) {
 				t.Errorf("ValidateWebSocketOrigin(%q, host=%q) = %v, want %v", tc.origin, tc.host, got, tc.allowed)
 			}
 		})
+	}
+}
+
+// TestNewOriginChecker covers the operator-configured domain list, including
+// the spoofing shapes that a naive suffix check would wave through.
+func TestNewOriginChecker(t *testing.T) {
+	check := NewOriginChecker([]string{"console.example.com", "*.corp.example.org"})
+
+	tests := []struct {
+		name    string
+		origin  string
+		host    string
+		allowed bool
+	}{
+		{
+			name:    "configured exact domain",
+			origin:  "https://console.example.com",
+			host:    "mgmt.example.com",
+			allowed: true,
+		},
+		{
+			name:    "configured wildcard subdomain",
+			origin:  "https://ops.corp.example.org",
+			host:    "mgmt.example.com",
+			allowed: true,
+		},
+		{
+			name:    "wildcard does not match the bare apex",
+			origin:  "https://corp.example.org",
+			host:    "mgmt.example.com",
+			allowed: false,
+		},
+		{
+			name:    "configured exact domain does not match a subdomain",
+			origin:  "https://evil.console.example.com",
+			host:    "mgmt.example.com",
+			allowed: false,
+		},
+		{
+			name:    "suffix spoofing against wildcard entry",
+			origin:  "https://corp.example.org.attacker.com",
+			host:    "mgmt.example.com",
+			allowed: false,
+		},
+		{
+			name:    "unrelated domain",
+			origin:  "https://attacker.com",
+			host:    "mgmt.example.com",
+			allowed: false,
+		},
+		{
+			name:    "case insensitive match",
+			origin:  "https://CONSOLE.Example.COM",
+			host:    "mgmt.example.com",
+			allowed: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			req.Host = tc.host
+			req.Header.Set("Origin", tc.origin)
+			if got := check(req); got != tc.allowed {
+				t.Errorf("check(%q, host=%q) = %v, want %v", tc.origin, tc.host, got, tc.allowed)
+			}
+		})
+	}
+}
+
+// TestNewOriginChecker_EmptyListTrustsNothingExtra documents the safe default:
+// with no configuration the checker only allows loopback and same-host.
+func TestNewOriginChecker_EmptyListTrustsNothingExtra(t *testing.T) {
+	check := NewOriginChecker(nil)
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Host = "mgmt.example.com"
+	req.Header.Set("Origin", "https://anything.example.org")
+	if check(req) {
+		t.Error("empty allow-list accepted a foreign origin")
 	}
 }
 

@@ -17,10 +17,10 @@ type darwinManager struct {
 // NewManager returns the macOS launchd LaunchDaemon implementation.
 func NewManager(cfg Config) (Manager, error) {
 	if cfg.Name == "" {
-		cfg.Name = "com.esta.endpoint-agent"
+		cfg.Name = "com.endpoint-mgmt.agent"
 	}
 	if !strings.HasPrefix(cfg.Name, "com.") {
-		cfg.Name = "com.esta." + cfg.Name
+		cfg.Name = "com.endpoint-mgmt." + cfg.Name
 	}
 	return &darwinManager{cfg: cfg}, nil
 }

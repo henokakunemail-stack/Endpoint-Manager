@@ -8,8 +8,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/endpoint-mgmt/server/core/db"
-	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
 )
 
 // newTestDB returns a migrated SQLite DB in a temp dir. Each test gets its own
@@ -33,6 +33,7 @@ func TestDeviceEnrollmentFlow(t *testing.T) {
 	plain := devicemgmt.GenerateToken()
 	now := frozenNow()
 	tokenHash := devicemgmt.HashToken(plain) // consumed to NULL on enrollment
+	site := "cabang-surabaya"
 	dev := devicemgmt.Device{
 		ID:                  devicemgmt.NewID(),
 		Hostname:            "PC-CABANG-01",
@@ -40,7 +41,7 @@ func TestDeviceEnrollmentFlow(t *testing.T) {
 		Status:              devicemgmt.StatusOffline,
 		EnrolledAt:          now,
 		EnrollmentTokenHash: &tokenHash,
-		Site:                "cabang-surabaya",
+		Site:                &site,
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
@@ -121,7 +122,7 @@ func TestDeviceListFilteringBySite(t *testing.T) {
 		now := frozenNow()
 		if err := repo.Create(ctx, devicemgmt.Device{
 			ID: devicemgmt.NewID(), Hostname: "PC", OSName: devicemgmt.OSWindows,
-			Status: devicemgmt.StatusOffline, EnrolledAt: now, Site: site,
+			Status: devicemgmt.StatusOffline, EnrolledAt: now, Site: &site,
 			DeviceSecretHash: devicemgmt.HashToken("s"), CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			t.Fatalf("create %d: %v", i, err)

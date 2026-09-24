@@ -52,11 +52,11 @@ Aplikasi secara keseluruhan hanya boleh disebut "siap production" jika:
 | RBAC | `TESTED (STAGING)` | ✅ Ya | Hierarki viewer<technician<admin terverifikasi (403/201 live). |
 | Transport (WS, hub, offline) | `TESTED (STAGING)` | ✅ Ya | Outbound-only; offline detection cepat; command queue survive disconnect. Hub **in-memory** → single-node only, belum bisa horizontal scale. |
 | Audit Log | `TESTED (STAGING)` | ✅ Ya | Terverifikasi live termasuk aksi package upload dan deployment. NULL scan error diperbaiki dengan COALESCE. |
-| Agent — Windows | `TESTED (STAGING)` | ✅ Ya — binary asli | Enroll + connect + command nyata + installer runner (`msiexec`, `exe`, `powershell`). RAM 16GB & CPU i5-1135G7 **cocok dengan query CIM independen**. |
+| Agent — Windows | `TESTED (STAGING)` | ✅ Ya — binary asli | Enroll + connect + command nyata + installer runner (`msiexec`, `exe`, `powershell`). Diuji pada host Windows x64; query CIM inventaris sesuai dengan kelas WMI standar. |
 | Agent — Linux | `CODE COMPLETE (UNTESTED)` | ❌ Build saja | Cross-compile linux/amd64 + linux/arm64 sukses. Runner `dpkg`, `rpm`, `/bin/sh` siap. Belum diuji di mesin Linux nyata (WSL/Docker mati). |
 | Agent — macOS | `CODE COMPLETE (UNTESTED)` | ❌ Build saja | Cross-compile darwin/amd64 + darwin/arm64 sukses. Runner `pkg`, `/bin/sh` siap. Belum diuji di mesin macOS nyata. |
 | TLS / WSS | `CODE COMPLETE (UNTESTED)` | ❌ | Server mendukung `ListenAndServeTLS` via env var `TLS_CERT_FILE` + `TLS_KEY_FILE`. Belum diuji dengan sertifikat sungguhan — perlu sertifikat (self-signed untuk staging, CA-signed untuk production). |
-| Device Management | `TESTED (STAGING)` | ✅ Ya — live binary | 12/12 live E2E lulus: 32 software entries nyata, serial Dell Latitude 3420 terekam, on-demand collect terbukti. Pagination server-side dengan SQL LIMIT/OFFSET. |
+| Device Management | `TESTED (STAGING)` | ✅ Ya — live binary | 12/12 live E2E lulus: dozens of software entries nyata, nomor seri host uji terekam, on-demand collect terbukti. Pagination server-side dengan SQL LIMIT/OFFSET. |
 | Dashboard / Web Console | `TESTED (STAGING)` | ✅ Ya — live binary | **Fase 3 selesai.** Frontend React 19 + TypeScript + Vite modern (Dark/Slate enterprise). Single-binary distribution via Go `embed.FS` dengan SPA fallback. Sub-millisecond indexed SQL aggregations (`/summary`, `/sites`, `/os`, `/alerts`, `/activity`). Modal inspect hardware, disk progress bar, software list, network NICs. |
 | Software Deployment | `TESTED (STAGING)` | ✅ Ya — live binary | **Fase 4 selesai.** Repositori biner installer, kalkulasi & verifikasi SHA-256, WebSocket push command `software.install`, silent execution engine (MSI, EXE, Script), pelaporan progres bertahap, UI Web Console lengkap (`SoftwarePage.tsx`). 12/12 E2E lulus. |
 | Remote Execution & Live Terminal | `TESTED (STAGING)` | ✅ Ya — live binary | **Fase 5 selesai.** Non-interactive remote command dispatch (PowerShell/CMD/Bash/Sh), timeout enforcement, exit code capture, full-duplex interactive terminal WebSocket relay (`/api/devices/{id}/terminal/ws`), UI modal visual (`RemoteExecModal.tsx` & `InteractiveTerminalModal.tsx`), audit logging forensik. 11/11 E2E lulus. |
@@ -125,8 +125,10 @@ bukan fitur yang hilang.
   sampai salah satunya diaktifkan. Karena itu juga, bug compile agent Linux
   **tidak terdeteksi** oleh `go build ./...` biasa (build tag menyembunyikannya);
   baru ketahuan saat `GOOS=linux go build`. Lihat rekomendasi di bawah.
-- **git terpasang** (`C:\Program Files\Git`, 2.55.0) tetapi **tidak di PATH**
-  untuk sesi PowerShell; pakai path absolut. Repo ada 69 tracked file, branch `master`.
+- **git & go harus ada di PATH** sebelum menjalankan build dan tes. Jika `git`
+  terpasang tapi tidak terdeteksi di PowerShell, tambahkan folder instalasinya ke PATH
+  atau panggil dengan path absolut. Jalankan `git status` untuk memastikan repo berada
+  pada branch yang diharapkan sebelum commit.
 - **Windows Defender** mengkarantina agent binary `go build -o emagent.exe`
   sebagai false positive. Siasat: bangun dengan
   `-ldflags '-X main.agentVersion=<versi>'` agar byte berubah. Quirk build

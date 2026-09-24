@@ -15,10 +15,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
 
-	"github.com/endpoint-mgmt/server/core/auth"
-	"github.com/endpoint-mgmt/server/core/rbac"
-	"github.com/endpoint-mgmt/server/core/transport"
-	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/transport"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
 )
 
 type Auditor interface {
@@ -285,7 +285,7 @@ func (h *Handler) handleStartCampaign(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		if dev.AgentVersion == campaign.TargetVersion {
+		if dev.AgentVersionString() == campaign.TargetVersion {
 			continue // already at target version
 		}
 
@@ -298,10 +298,11 @@ func (h *Handler) handleStartCampaign(w http.ResponseWriter, r *http.Request) {
 		}
 
 		now := time.Now().UTC()
+		fromVersion := dev.AgentVersionString()
 		task := &DeviceUpdateTask{
 			CampaignID:    &campaign.ID,
 			DeviceID:      devID,
-			FromVersion:   dev.AgentVersion,
+			FromVersion:   fromVersion,
 			TargetVersion: campaign.TargetVersion,
 			Status:        "dispatched",
 			DispatchedAt:  &now,
@@ -372,9 +373,10 @@ func (h *Handler) handleDispatchDeviceUpdate(w http.ResponseWriter, r *http.Requ
 	}
 
 	now := time.Now().UTC()
+	fromVersion := dev.AgentVersionString()
 	task := &DeviceUpdateTask{
 		DeviceID:      deviceID,
-		FromVersion:   dev.AgentVersion,
+		FromVersion:   fromVersion,
 		TargetVersion: req.TargetVersion,
 		Status:        "dispatched",
 		DispatchedAt:  &now,

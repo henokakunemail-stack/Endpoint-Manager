@@ -11,9 +11,9 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog/log"
 
-	"github.com/endpoint-mgmt/server/core/audit"
-	"github.com/endpoint-mgmt/server/core/auth"
-	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/audit"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
 )
 
 // WSHandler upgrades agent connections and drives the per-connection read loop.
@@ -75,6 +75,16 @@ func (h *WSHandler) WithInventory(r InventoryReceiver) *WSHandler {
 // WithTerminal attaches the Fase 5 terminal receiver for interactive shell streaming.
 func (h *WSHandler) WithTerminal(t TerminalReceiver) *WSHandler {
 	h.terminal = t
+	return h
+}
+
+// WithOriginChecker replaces the default CSWSH origin policy. The operator
+// builds this from ALLOWED_ORIGIN_DOMAINS so a console served from a different
+// hostname can still open WebSockets.
+func (h *WSHandler) WithOriginChecker(check auth.OriginChecker) *WSHandler {
+	if check != nil {
+		h.upgrader.CheckOrigin = check
+	}
 	return h
 }
 

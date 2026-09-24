@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/endpoint-mgmt/agent/shared/inventory"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/inventory"
 )
 
 // cimQuery runs a Get-CimInstance query and returns the rows as parsed JSON.

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/endpoint-mgmt/agent/shared/osinfo"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/osinfo"
 	"golang.org/x/sys/windows"
 )
 

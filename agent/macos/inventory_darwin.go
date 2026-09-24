@@ -12,7 +12,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/endpoint-mgmt/agent/shared/inventory"
+	"github.com/henokakunemail-stack/Endpoint-Manager/agent/shared/inventory"
 )
 
 // macCollector implements inventory.Collector for macOS.

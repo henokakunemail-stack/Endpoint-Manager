@@ -14,19 +14,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/endpoint-mgmt/server/core/auth"
-	"github.com/endpoint-mgmt/server/core/db"
-	"github.com/endpoint-mgmt/server/core/rbac"
-	softwaredeployment "github.com/endpoint-mgmt/server/modules/software-deployment"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/db"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
+	devicemgmt "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/device-management"
+	softwaredeployment "github.com/henokakunemail-stack/Endpoint-Manager/server/modules/software-deployment"
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
+)
+
+// Device identities used by the software-deployment E2E suite. The agent-facing
+// routes authenticate on the X-Device-Id / X-Device-Secret pair, so these
+// secrets are hashed into the seeded devices below and replayed verbatim by
+// the requests that stand in for an agent.
+const (
+	devWin1ID     = "dev-win-1"
+	devWin1Secret = "win1-device-secret"
+	devWin2ID     = "dev-win-2"
+	devWin2Secret = "win2-device-secret"
+	devLin1ID     = "dev-lin-1"
+	devLin1Secret = "lin1-device-secret"
 )
 
 type mockHub struct {
 	onlineDevices map[string]bool
 	sentMessages  map[string][][]byte
 }
-
 func newMockHub() *mockHub {
 	return &mockHub{
 		onlineDevices: make(map[string]bool),
@@ -55,8 +68,9 @@ func newSoftwareEnv(t *testing.T) (*httptest.Server, *sqlx.DB, *auth.JWTService,
 	jwtSvc := auth.NewJWTService("soft-e2e-secret-0123456789abcdef", time.Minute, time.Hour)
 	hub := newMockHub()
 	softRepo := softwaredeployment.NewRepository(d)
+	deviceRepo := devicemgmt.NewRepository(d)
 	storageDir := filepath.Join(tempDir, "packages")
-	softH := softwaredeployment.NewHandler(softRepo, hub, nil, storageDir, jwtSvc.RequireAuth)
+	softH := softwaredeployment.NewHandler(softRepo, hub, nil, storageDir, jwtSvc.RequireAuth, deviceRepo)
 
 	r := chi.NewRouter()
 	loginH := auth.NewLoginHandler(d, jwtSvc)
@@ -93,15 +107,17 @@ func TestE2ESoftwareDeployment(t *testing.T) {
 	viewerTokens, _ := jwtSvc.Issue("u-viewer", "viewer", rbac.RoleViewer)
 
 	// 2. Seed devices: 2 Windows, 1 Linux
+	// The agent-facing endpoints authenticate on the device secret, so the
+	// hashes must be real SHA-256 digests of the secrets used later below.
 	_, err = d.ExecContext(ctx, `
-		INSERT INTO devices (id, hostname, os_name, status, last_seen_at, enrolled_at, device_secret_hash, site, created_at, updated_at)
+		INSERT INTO devices (id, hostname, os_name, os_version, agent_version, status, last_seen_at, enrolled_at, device_secret_hash, site, created_at, updated_at)
 		VALUES
-		('dev-win-1', 'DESKTOP-WIN1', 'windows', 'online', ?, ?, 'h1', 'hq', ?, ?),
-		('dev-win-2', 'DESKTOP-WIN2', 'windows', 'offline', ?, ?, 'h2', 'hq', ?, ?),
-		('dev-lin-1', 'SRV-LIN1', 'linux', 'online', ?, ?, 'h3', 'branch', ?, ?)`,
-		now, now, now, now,
-		now, now, now, now,
-		now, now, now, now)
+		('dev-win-1', 'DESKTOP-WIN1', 'windows', '10.0', '1.0.0', 'online', ?, ?, ?, 'hq', ?, ?),
+		('dev-win-2', 'DESKTOP-WIN2', 'windows', '10.0', '1.0.0', 'offline', ?, ?, ?, 'hq', ?, ?),
+		('dev-lin-1', 'SRV-LIN1', 'linux', '12.0', '1.0.0', 'online', ?, ?, ?, 'branch', ?, ?)`,
+		now, now, devicemgmt.HashToken(devWin1Secret), now, now,
+		now, now, devicemgmt.HashToken(devWin2Secret), now, now,
+		now, now, devicemgmt.HashToken(devLin1Secret), now, now)
 	if err != nil {
 		t.Fatalf("seed devices: %v", err)
 	}
@@ -161,8 +177,10 @@ func TestE2ESoftwareDeployment(t *testing.T) {
 		t.Fatalf("expected 403 Forbidden for viewer upload, got %d", respViewer.StatusCode)
 	}
 
-	// 5. Test Download Package Binary
+	// 5. Test Download Package Binary (agent endpoint: requires device credentials)
 	dlReq, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/agent/packages/"+pkg.ID+"/download", nil)
+	dlReq.Header.Set("X-Device-Id", devWin1ID)
+	dlReq.Header.Set("X-Device-Secret", devWin1Secret)
 	dlResp, err := http.DefaultClient.Do(dlReq)
 	if err != nil {
 		t.Fatalf("download package: %v", err)
@@ -170,7 +188,8 @@ func TestE2ESoftwareDeployment(t *testing.T) {
 	defer dlResp.Body.Close()
 
 	if dlResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK download, got %d", dlResp.StatusCode)
+		body, _ := io.ReadAll(dlResp.Body)
+		t.Fatalf("expected 200 OK download, got %d: %s", dlResp.StatusCode, body)
 	}
 	downloadedBytes, _ := io.ReadAll(dlResp.Body)
 	if !bytes.Equal(downloadedBytes, fakeMSIContent) {
@@ -256,6 +275,8 @@ func TestE2ESoftwareDeployment(t *testing.T) {
 	p1Bytes, _ := json.Marshal(prog1)
 	p1Req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/agent/tasks/"+task1.ID+"/progress", bytes.NewReader(p1Bytes))
 	p1Req.Header.Set("Content-Type", "application/json")
+	p1Req.Header.Set("X-Device-Id", devWin1ID)
+	p1Req.Header.Set("X-Device-Secret", devWin1Secret)
 	p1Resp, _ := http.DefaultClient.Do(p1Req)
 	p1Resp.Body.Close()
 
@@ -270,6 +291,8 @@ func TestE2ESoftwareDeployment(t *testing.T) {
 	psBytes, _ := json.Marshal(progSuccess)
 	psReq, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/agent/tasks/"+task1.ID+"/progress", bytes.NewReader(psBytes))
 	psReq.Header.Set("Content-Type", "application/json")
+	psReq.Header.Set("X-Device-Id", devWin1ID)
+	psReq.Header.Set("X-Device-Secret", devWin1Secret)
 	psResp, _ := http.DefaultClient.Do(psReq)
 	psResp.Body.Close()
 
@@ -287,6 +310,8 @@ func TestE2ESoftwareDeployment(t *testing.T) {
 	pfBytes, _ := json.Marshal(progFail)
 	pfReq, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/agent/tasks/"+task2.ID+"/progress", bytes.NewReader(pfBytes))
 	pfReq.Header.Set("Content-Type", "application/json")
+	pfReq.Header.Set("X-Device-Id", devWin2ID)
+	pfReq.Header.Set("X-Device-Secret", devWin2Secret)
 	pfResp, _ := http.DefaultClient.Do(pfReq)
 	pfResp.Body.Close()
 

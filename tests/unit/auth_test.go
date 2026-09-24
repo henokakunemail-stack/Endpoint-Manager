@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/endpoint-mgmt/server/core/auth"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/auth"
 )
 
 func TestPasswordHashAndCompare(t *testing.T) {

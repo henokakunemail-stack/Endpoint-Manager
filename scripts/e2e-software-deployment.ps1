@@ -24,7 +24,7 @@ Write-Host "=== FASE 4 E2E: SOFTWARE DEPLOYMENT & AGENT INSTALLER VERIFICATION =
 
 # 1. Build server and agent binaries
 Write-Host "1. Building server and agent binaries..."
-Push-Location "D:\Henok\Projects\Desktop Manage"
+Push-Location (Resolve-Path (Join-Path $PSScriptRoot ".."))
 $env:CGO_ENABLED = '0'
 
 go build -o $serverExe ./server/cmd/server

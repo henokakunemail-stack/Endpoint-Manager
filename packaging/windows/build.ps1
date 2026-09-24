@@ -1,0 +1,69 @@
+# ==============================================================================
+# Build script for Windows Agent NSIS Installer
+# ==============================================================================
+param(
+    [string]$Version = "1.0.0",
+    [switch]$SkipCompile = $false
+)
+
+$ErrorActionPreference = "Stop"
+$ScriptRoot = $PSScriptRoot
+$RepoRoot = Resolve-Path (Join-Path $ScriptRoot "..\..")
+
+Push-Location $RepoRoot
+try {
+    $AgentExe = Join-Path $RepoRoot "agent-windows-amd64.exe"
+
+    if (-not $SkipCompile -or -not (Test-Path $AgentExe)) {
+        Write-Host "[1/2] Compiling Windows agent binary (CGO_ENABLED=0, GOOS=windows, GOARCH=amd64)..." -ForegroundColor Cyan
+        $env:CGO_ENABLED = "0"
+        $env:GOOS = "windows"
+        $env:GOARCH = "amd64"
+        & go build -ldflags="-s -w" -o $AgentExe ./agent/cmd/agent
+        if ($LASTEXITCODE -ne 0) {
+            throw "Go build failed with exit code $LASTEXITCODE"
+        }
+        Write-Host "      Agent binary compiled: $AgentExe" -ForegroundColor Green
+    } else {
+        Write-Host "[1/2] Reusing existing agent binary: $AgentExe" -ForegroundColor Yellow
+    }
+
+    Write-Host "[2/2] Compiling NSIS Installer..." -ForegroundColor Cyan
+    $NsisPath = (Get-Command makensis.exe -ErrorAction SilentlyContinue)?.Source
+    if (-not $NsisPath) {
+        # Check standard default installation paths
+        $Candidates = @(
+            "$env:ProgramFiles\NSIS\makensis.exe",
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+        )
+        foreach ($c in $Candidates) {
+            if (Test-Path $c) {
+                $NsisPath = $c
+                break
+            }
+        }
+    }
+
+    if (-not $NsisPath) {
+        Write-Host "[-] makensis.exe not found on PATH or default directories." -ForegroundColor Yellow
+        Write-Host "    To install NSIS on Windows, run:" -ForegroundColor Yellow
+        Write-Host "      winget install NSIS.NSIS" -ForegroundColor White
+        Write-Host "    Then re-run this script." -ForegroundColor Yellow
+        exit 1
+    }
+
+    Push-Location $ScriptRoot
+    try {
+        & $NsisPath /DVERSION=$Version agent.nsi
+        if ($LASTEXITCODE -eq 0) {
+            $OutExe = Join-Path $ScriptRoot "EndpointAgent-Setup.exe"
+            Write-Host "[+] Installer built successfully: $OutExe" -ForegroundColor Green
+        } else {
+            throw "makensis failed with exit code $LASTEXITCODE"
+        }
+    } finally {
+        Pop-Location
+    }
+} finally {
+    Pop-Location
+}

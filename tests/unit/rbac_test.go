@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/endpoint-mgmt/server/core/rbac"
+	"github.com/henokakunemail-stack/Endpoint-Manager/server/core/rbac"
 )
 
 func runWithRole(role string, minRole string, t *testing.T) *httptest.ResponseRecorder {
