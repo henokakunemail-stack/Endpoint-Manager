@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+
+	"github.com/endpoint-mgmt/agent/shared/transport"
 )
 
 type InstallPayload struct {
@@ -69,7 +71,7 @@ func ReportProgress(ctx context.Context, serverURL, deviceID, deviceSecret strin
 	req.Header.Set("X-Device-Id", deviceID)
 	req.Header.Set("X-Device-Secret", deviceSecret)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := transport.NewHTTPClient(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -125,7 +127,7 @@ func ExecuteInstall(ctx context.Context, serverURL, deviceID, deviceSecret strin
 	req.Header.Set("X-Device-Id", deviceID)
 	req.Header.Set("X-Device-Secret", deviceSecret)
 
-	downloadClient := &http.Client{Timeout: 30 * time.Minute}
+	downloadClient := transport.NewHTTPClient(30 * time.Minute)
 	resp, err := downloadClient.Do(req)
 	if err != nil {
 		failMsg := "download failed: " + err.Error()

@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+
+	"github.com/endpoint-mgmt/agent/shared/transport"
 )
 
 const (
@@ -42,7 +44,7 @@ func NewEngine(serverURL, deviceID, deviceSecret string) *Engine {
 		serverURL:    serverURL,
 		deviceID:     deviceID,
 		deviceSecret: deviceSecret,
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
+		httpClient:   transport.NewHTTPClient(10 * time.Second),
 	}
 }
 

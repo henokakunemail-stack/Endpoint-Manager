@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/endpoint-mgmt/agent/shared/transport"
 )
 
 type UpdateParams struct {
@@ -38,7 +40,7 @@ func NewEngine(serverURL, deviceID, deviceSecret string) *Engine {
 		serverURL:    serverURL,
 		deviceID:     deviceID,
 		deviceSecret: deviceSecret,
-		client:       &http.Client{Timeout: 60 * time.Second},
+		client:       transport.NewHTTPClient(60 * time.Second),
 	}
 }
 

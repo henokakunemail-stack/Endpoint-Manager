@@ -131,7 +131,8 @@ func (c *Client) connectAndServe(ctx context.Context, hello any) error {
 	header.Set("X-Device-Secret", c.deviceSecret)
 
 	url := c.serverURL + "/api/agent/connect"
-	ws, _, err := websocket.DefaultDialer.DialContext(ctx, url, header)
+	dialer := NewWebSocketDialer(15 * time.Second)
+	ws, _, err := dialer.DialContext(ctx, url, header)
 	if err != nil {
 		return fmt.Errorf("dial server: %w", err)
 	}

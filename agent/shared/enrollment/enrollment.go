@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/endpoint-mgmt/agent/shared/transport"
 )
 
 // Credentials is what the agent stores locally after a successful enrollment.
@@ -21,7 +24,8 @@ type Credentials struct {
 // Exchange posts the enrollment token to the server and stores the returned secret.
 func Exchange(serverURL, token string) (Credentials, error) {
 	body, _ := json.Marshal(map[string]string{"enrollment_token": token})
-	resp, err := http.Post(serverURL+"/api/agent/enroll", "application/json", bytesReader(body))
+	client := transport.NewHTTPClient(15 * time.Second)
+	resp, err := client.Post(serverURL+"/api/agent/enroll", "application/json", bytesReader(body))
 	if err != nil {
 		return Credentials{}, fmt.Errorf("enroll request: %w", err)
 	}

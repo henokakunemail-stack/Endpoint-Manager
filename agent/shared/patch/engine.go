@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/endpoint-mgmt/agent/shared/transport"
 )
 
 type Engine struct {
@@ -23,7 +25,7 @@ func NewEngine(serverBase, deviceID, secret string) *Engine {
 		serverBase: base,
 		deviceID:   deviceID,
 		secret:     secret,
-		client:     &http.Client{Timeout: 30 * time.Second},
+		client:     transport.NewHTTPClient(30 * time.Second),
 	}
 }
 

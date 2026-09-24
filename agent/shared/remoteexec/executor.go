@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+
+	"github.com/endpoint-mgmt/agent/shared/transport"
 )
 
 type ExecPayload struct {
@@ -60,7 +62,7 @@ func ReportResult(ctx context.Context, serverURL, deviceID, deviceSecret string,
 	req.Header.Set("X-Device-Id", deviceID)
 	req.Header.Set("X-Device-Secret", deviceSecret)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := transport.NewHTTPClient(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
