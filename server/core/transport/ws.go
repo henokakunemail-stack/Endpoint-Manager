@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/endpoint-mgmt/server/core/audit"
+	"github.com/endpoint-mgmt/server/core/auth"
 	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
 )
 
@@ -22,6 +23,7 @@ type WSHandler struct {
 	repo         *devicemgmt.Repository
 	db           *sqlx.DB
 	offlineAfter time.Duration
+	flusher      *HeartbeatFlusher
 	// inventory accepts agent collection reports. Optional: nil means reports are
 	// logged and dropped, which keeps Fase 1 deployments working unchanged.
 	inventory InventoryReceiver
@@ -47,12 +49,15 @@ type InventoryReceiver interface {
 // NewWSHandler builds a handler with no inventory receiver; use
 // (WSHandler).WithInventory to enable Fase 2 collection.
 func NewWSHandler(hub *Hub, repo *devicemgmt.Repository, db *sqlx.DB, offlineAfter time.Duration) *WSHandler {
+	var flusher *HeartbeatFlusher
+	if db != nil {
+		flusher = NewHeartbeatFlusher(db, 2*time.Second)
+	}
 	return &WSHandler{
 		hub: hub, repo: repo, db: db, offlineAfter: offlineAfter,
+		flusher: flusher,
 		upgrader: websocket.Upgrader{
-			// Agents connect from arbitrary networks; origin is not meaningful here.
-			// Authentication is by per-device secret, not CORS.
-			CheckOrigin: func(r *http.Request) bool { return true },
+			CheckOrigin: auth.ValidateWebSocketOrigin,
 		},
 	}
 }
@@ -126,6 +131,9 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.closeSend()
 		<-done
 		_ = ws.Close()
+		if h.flusher != nil {
+			h.flusher.Remove(deviceID)
+		}
 		// On disconnect the device is offline; last_seen keeps the timestamp.
 		// r.Context() is still live here: the goroutine it guards — this very
 		// handler — has not returned yet, so the DB write is not orphaned.
@@ -309,7 +317,25 @@ func (h *WSHandler) handleHello(ctx context.Context, c *Conn, env Envelope) {
 }
 
 func (h *WSHandler) handleHeartbeat(ctx context.Context, c *Conn) {
-	_ = h.repo.UpdateStatus(ctx, c.DeviceID, devicemgmt.StatusOnline, time.Now().UTC())
+	if h.flusher != nil {
+		h.flusher.Record(c.DeviceID)
+	} else {
+		_ = h.repo.UpdateStatus(ctx, c.DeviceID, devicemgmt.StatusOnline, time.Now().UTC())
+	}
+}
+
+// FlushHeartbeats synchronously flushes all buffered heartbeats to the database.
+func (h *WSHandler) FlushHeartbeats() {
+	if h.flusher != nil {
+		h.flusher.Flush()
+	}
+}
+
+// Close gracefully flushes remaining heartbeats and terminates background workers.
+func (h *WSHandler) Close() {
+	if h.flusher != nil {
+		h.flusher.Close()
+	}
 }
 
 func (h *WSHandler) handleCommandResult(ctx context.Context, c *Conn, env Envelope) {

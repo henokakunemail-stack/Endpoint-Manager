@@ -16,6 +16,7 @@ import {
   Server,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { api } from '../services/api'
 import type {
   SoftwarePackageDTO,
@@ -31,6 +32,7 @@ export const SoftwarePage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const toast = useToast()
 
   // Upload Modal State
   const [showUploadModal, setShowUploadModal] = useState(false)
@@ -96,7 +98,9 @@ export const SoftwarePage: React.FC = () => {
       formData.append('file', selectedFile)
 
       await api.uploadPackage(formData)
-      setStatusMsg({ type: 'success', text: `Package ${uploadName} uploaded successfully` })
+      const successText = `Package ${uploadName} uploaded successfully`
+      setStatusMsg({ type: 'success', text: successText })
+      toast.success(successText, 'Package Uploaded')
       setShowUploadModal(false)
       setUploadName('')
       setUploadVersion('')
@@ -106,6 +110,7 @@ export const SoftwarePage: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       setStatusMsg({ type: 'error', text: msg })
+      toast.error(msg, 'Upload Failed')
     } finally {
       setUploading(false)
     }
@@ -117,11 +122,14 @@ export const SoftwarePage: React.FC = () => {
     }
     try {
       await api.deletePackage(id)
-      setStatusMsg({ type: 'success', text: `Package ${name} deleted successfully` })
+      const successText = `Package ${name} deleted successfully`
+      setStatusMsg({ type: 'success', text: successText })
+      toast.info(successText)
       fetchData()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to delete package'
       setStatusMsg({ type: 'error', text: msg })
+      toast.error(msg)
     }
   }
 
@@ -141,10 +149,12 @@ export const SoftwarePage: React.FC = () => {
         target_type: deployTargetType,
         target_id: deployTargetId,
       })
+      const successText = `Deployment initiated! ${res.tasks_total} target(s) queued, ${res.dispatched_live} dispatched live.`
       setStatusMsg({
         type: 'success',
-        text: `Deployment initiated! ${res.tasks_total} target(s) queued, ${res.dispatched_live} dispatched live.`,
+        text: successText,
       })
+      toast.success(successText, 'Deployment Dispatched')
       setShowDeployModal(false)
       setDeployName('')
       setDeployPackageId('')
@@ -154,6 +164,7 @@ export const SoftwarePage: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to trigger deployment'
       setStatusMsg({ type: 'error', text: msg })
+      toast.error(msg, 'Deployment Failed')
     } finally {
       setDeploying(false)
     }

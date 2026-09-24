@@ -56,7 +56,7 @@ func NewHandler(
 		authMiddleware: authMiddleware,
 		devices:        devices,
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
+			CheckOrigin: auth.ValidateWebSocketOrigin,
 		},
 	}
 }

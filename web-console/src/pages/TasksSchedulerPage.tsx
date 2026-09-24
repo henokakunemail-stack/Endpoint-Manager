@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../services/api'
+import { useToast } from '../context/ToastContext'
 import type { ScheduleDTO, ScriptDTO, TaskRunDTO } from '../types/api'
 
 export const TasksSchedulerPage: React.FC = () => {
@@ -42,6 +43,7 @@ export const TasksSchedulerPage: React.FC = () => {
     cron_expr: '0 0 * * *',
   })
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const toast = useToast()
 
   const loadData = async () => {
     setLoading(true)
@@ -69,12 +71,16 @@ export const TasksSchedulerPage: React.FC = () => {
     e.preventDefault()
     try {
       await api.createScript(newScript)
-      setMsg({ type: 'success', text: `Script '${newScript.name}' created successfully with SHA-256 hash.` })
+      const successText = `Script '${newScript.name}' created successfully with SHA-256 hash.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'Script Registered')
       setIsScriptModalOpen(false)
       setNewScript({ name: '', description: '', shell_type: 'powershell', script_content: '' })
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to create script' })
+      const errorText = err.message || 'Failed to create script'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Creation Failed')
     }
   }
 
@@ -82,10 +88,14 @@ export const TasksSchedulerPage: React.FC = () => {
     if (!confirm(`Delete script '${name}'? This cannot be undone.`)) return
     try {
       await api.deleteScript(id)
-      setMsg({ type: 'success', text: 'Script deleted' })
+      const infoText = `Script '${name}' deleted.`
+      setMsg({ type: 'success', text: infoText })
+      toast.info(infoText)
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to delete script' })
+      const errorText = err.message || 'Failed to delete script'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText)
     }
   }
 
@@ -93,11 +103,15 @@ export const TasksSchedulerPage: React.FC = () => {
     e.preventDefault()
     try {
       await api.createSchedule(newSchedule)
-      setMsg({ type: 'success', text: `Schedule '${newSchedule.name}' created and activated.` })
+      const successText = `Schedule '${newSchedule.name}' created and activated.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'Schedule Activated')
       setIsScheduleModalOpen(false)
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to create schedule' })
+      const errorText = err.message || 'Failed to create schedule'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Schedule Failed')
     }
   }
 

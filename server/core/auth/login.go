@@ -2,7 +2,9 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -21,12 +23,33 @@ type chiRouter interface {
 
 // LoginHandler issues JWTs for admin console users.
 type LoginHandler struct {
-	db  *sqlx.DB
-	jwt *JWTService
+	db      *sqlx.DB
+	jwt     *JWTService
+	limiter *IPRateLimiter
 }
 
 func NewLoginHandler(db *sqlx.DB, jwt *JWTService) *LoginHandler {
-	return &LoginHandler{db: db, jwt: jwt}
+	return &LoginHandler{
+		db:      db,
+		jwt:     jwt,
+		limiter: NewIPRateLimiter(5, 1*time.Minute, 5*time.Minute),
+	}
+}
+
+// WithRateLimiter configures a custom rate limiter (e.g. for unit tests).
+func (h *LoginHandler) WithRateLimiter(l *IPRateLimiter) *LoginHandler {
+	if h.limiter != nil {
+		h.limiter.Close()
+	}
+	h.limiter = l
+	return h
+}
+
+// Close gracefully stops the background rate limiter cleanup.
+func (h *LoginHandler) Close() {
+	if h.limiter != nil {
+		h.limiter.Close()
+	}
 }
 
 type loginRequest struct {
@@ -50,6 +73,14 @@ func (h *LoginHandler) Register(mux any) {
 }
 
 func (h *LoginHandler) login(w http.ResponseWriter, r *http.Request) {
+	clientIP := ClientIP(r)
+	if allowed, wait := h.limiter.IsAllowed(clientIP); !allowed {
+		waitSec := int(wait.Seconds()) + 1
+		w.Header().Set("Retry-After", strconv.Itoa(waitSec))
+		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("too many failed login attempts, please try again in %d seconds", waitSec))
+		return
+	}
+
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -74,15 +105,18 @@ func (h *LoginHandler) login(w http.ResponseWriter, r *http.Request) {
 		FROM users u WHERE u.username = ?`, req.Username)
 	if err != nil {
 		// Do not leak whether the username exists.
+		h.limiter.RecordFailure(clientIP)
 		log.Debug().Err(err).Str("username", req.Username).Msg("login unknown user")
 		writeErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if u.Status != "active" {
+		h.limiter.RecordFailure(clientIP)
 		writeErr(w, http.StatusUnauthorized, "account is disabled")
 		return
 	}
 	if err := ComparePassword(u.PasswordHash, req.Password); err != nil {
+		h.limiter.RecordFailure(clientIP)
 		writeErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -93,6 +127,7 @@ func (h *LoginHandler) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	h.limiter.RecordSuccess(clientIP)
 	_ = audit.Log(r.Context(), h.db, "user", u.ID, "auth.login", u.ID, nil)
 	writeJSON(w, http.StatusOK, pair)
 }

@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../services/api'
+import { useToast } from '../context/ToastContext'
 import type { AgentReleaseDTO, UpdateCampaignDTO } from '../types/api'
 
 export const AgentUpdatesPage: React.FC = () => {
@@ -22,6 +23,7 @@ export const AgentUpdatesPage: React.FC = () => {
   const [isReleaseModalOpen, setIsReleaseModalOpen] = useState(false)
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const toast = useToast()
 
   // Upload Release Form
   const [relVersion, setRelVersion] = useState('')
@@ -78,14 +80,18 @@ export const AgentUpdatesPage: React.FC = () => {
       fd.append('changelog', relChangelog)
 
       await api.uploadAgentRelease(fd)
-      setMsg({ type: 'success', text: `Release v${relVersion} (${relOS}/${relArch}) uploaded and registered.` })
+      const successText = `Release v${relVersion} (${relOS}/${relArch}) uploaded and registered.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'Release Uploaded')
       setIsReleaseModalOpen(false)
       setSelectedFile(null)
       setRelVersion('')
       setRelChangelog('')
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to upload release binary' })
+      const errorText = err.message || 'Failed to upload release binary'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Upload Failed')
     } finally {
       setUploading(false)
     }
@@ -95,11 +101,15 @@ export const AgentUpdatesPage: React.FC = () => {
     e.preventDefault()
     try {
       await api.createUpdateCampaign(newCampaign)
-      setMsg({ type: 'success', text: `Update campaign '${newCampaign.name}' launched successfully.` })
+      const successText = `Update campaign '${newCampaign.name}' launched successfully.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'Campaign Launched')
       setIsCampaignModalOpen(false)
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to launch update campaign' })
+      const errorText = err.message || 'Failed to launch update campaign'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Launch Failed')
     }
   }
 

@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { api } from '../services/api'
+import { useToast } from '../context/ToastContext'
 
 interface ReportCardProps {
   title: string
@@ -21,9 +22,11 @@ interface ReportCardProps {
 
 const ReportCard: React.FC<ReportCardProps> = ({ title, category, description, reportType, icon }) => {
   const [downloading, setDownloading] = useState(false)
+  const toast = useToast()
 
   const handleDownload = (format: 'csv' | 'json') => {
     setDownloading(true)
+    toast.info(`Preparing ${title} (${format.toUpperCase()}) streaming export...`, 'Export Started')
     const url = api.getReportExportUrl(reportType, format)
     // Create an invisible link to trigger direct download
     const link = document.createElement('a')
@@ -32,7 +35,10 @@ const ReportCard: React.FC<ReportCardProps> = ({ title, category, description, r
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    setTimeout(() => setDownloading(false), 1500)
+    setTimeout(() => {
+      setDownloading(false)
+      toast.success(`${title} export ready.`, 'Download Complete')
+    }, 1500)
   }
 
   return (

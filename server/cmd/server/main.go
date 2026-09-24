@@ -79,6 +79,7 @@ func main() {
 
 	// Admin console auth (public endpoints).
 	loginH := auth.NewLoginHandler(database, jwtSvc)
+	defer loginH.Close()
 	loginH.Register(r)
 
 	// Agent endpoints (authenticated by per-device secret, not JWT).
@@ -90,10 +91,12 @@ func main() {
 	termRelay := remoteexec.NewTerminalRelay()
 	remoteExecH := remoteexec.NewHandler(remoteExecRepo, hub, termRelay, &auditAdapter{db: database}, jwtSvc, jwtSvc.RequireAuth, deviceRepo)
 
-	r.Handle("/api/agent/connect",
-		transport.NewWSHandler(hub, deviceRepo, database, cfg.AgentOfflineAfter).
-			WithInventory(invH).
-			WithTerminal(termRelay))
+	wsH := transport.NewWSHandler(hub, deviceRepo, database, cfg.AgentOfflineAfter).
+		WithInventory(invH).
+		WithTerminal(termRelay)
+	defer wsH.Close()
+
+	r.Handle("/api/agent/connect", wsH)
 
 	// Device management API (JWT + RBAC).
 	deviceH := devicemgmt.NewHandler(deviceRepo, database, jwtSvc, cfg.EnrollmentTTL)

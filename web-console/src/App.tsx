@@ -4,6 +4,7 @@ import { Navbar } from './components/Navbar'
 import { RemoteControlModal } from './components/RemoteControlModal'
 import { RemoteExecModal } from './components/RemoteExecModal'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { ToastProvider } from './context/ToastContext'
 import { AgentUpdatesPage } from './pages/AgentUpdatesPage'
 import { AlertsPage } from './pages/AlertsPage'
 import { AssetLicensePage } from './pages/AssetLicensePage'
@@ -100,7 +101,9 @@ const ConsoleRoot: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <AuthProvider>
-      <ConsoleRoot />
+      <ToastProvider>
+        <ConsoleRoot />
+      </ToastProvider>
     </AuthProvider>
   )
 }

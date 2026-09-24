@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../services/api'
+import { useToast } from '../context/ToastContext'
 import type {
   AssetSummaryDTO,
   HardwareAssetDTO,
@@ -33,6 +34,7 @@ export const AssetLicensePage: React.FC = () => {
   const [isAssetModalOpen, setIsAssetModalOpen] = useState(false)
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const toast = useToast()
 
   // New Asset Form
   const [newAsset, setNewAsset] = useState<Partial<HardwareAssetDTO>>({
@@ -86,7 +88,9 @@ export const AssetLicensePage: React.FC = () => {
     e.preventDefault()
     try {
       await api.createAsset(newAsset)
-      setMsg({ type: 'success', text: `Hardware Asset '${newAsset.asset_tag}' registered successfully.` })
+      const successText = `Hardware Asset '${newAsset.asset_tag}' registered successfully.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'Asset Registered')
       setIsAssetModalOpen(false)
       setNewAsset({
         asset_tag: '',
@@ -102,7 +106,9 @@ export const AssetLicensePage: React.FC = () => {
       })
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to register asset' })
+      const errorText = err.message || 'Failed to register asset'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Registration Failed')
     }
   }
 
@@ -110,10 +116,14 @@ export const AssetLicensePage: React.FC = () => {
     if (!confirm(`Delete hardware asset '${tag}'?`)) return
     try {
       await api.deleteAsset(id)
-      setMsg({ type: 'success', text: 'Asset removed from inventory' })
+      const infoText = `Asset '${tag}' removed from inventory.`
+      setMsg({ type: 'success', text: infoText })
+      toast.info(infoText, 'Asset Removed')
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to delete asset' })
+      const errorText = err.message || 'Failed to delete asset'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Deletion Failed')
     }
   }
 
@@ -121,11 +131,15 @@ export const AssetLicensePage: React.FC = () => {
     e.preventDefault()
     try {
       await api.createLicense(newLicense)
-      setMsg({ type: 'success', text: `License '${newLicense.software_name}' created.` })
+      const successText = `License '${newLicense.software_name}' created.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'License Created')
       setIsLicenseModalOpen(false)
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to create license' })
+      const errorText = err.message || 'Failed to create license'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Creation Failed')
     }
   }
 

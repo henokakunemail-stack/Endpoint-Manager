@@ -25,6 +25,7 @@ import (
 	"github.com/endpoint-mgmt/agent/shared/patch"
 	"github.com/endpoint-mgmt/agent/shared/remotecontrol"
 	"github.com/endpoint-mgmt/agent/shared/remoteexec"
+	"github.com/endpoint-mgmt/agent/shared/service"
 	"github.com/endpoint-mgmt/agent/shared/software"
 	"github.com/endpoint-mgmt/agent/shared/transport"
 	"github.com/endpoint-mgmt/agent/shared/update"
@@ -40,12 +41,19 @@ func main() {
 		enrollToken   string
 		credsPath     string
 		heartbeatSecs int
+		serviceAction string
 	)
 	flag.StringVar(&serverURL, "server", envOr("AGENT_SERVER", "http://localhost:8443"), "central server URL")
 	flag.StringVar(&enrollToken, "enroll", "", "one-time enrollment token (first run only)")
 	flag.StringVar(&credsPath, "creds", defaultCredsPath(), "path to persisted credentials")
 	flag.IntVar(&heartbeatSecs, "heartbeat", 20, "heartbeat interval in seconds")
+	flag.StringVar(&serviceAction, "service", "", "OS service management action (install|uninstall|start|stop|status)")
 	flag.Parse()
+
+	if serviceAction != "" {
+		handleServiceAction(serviceAction, serverURL, credsPath)
+		return
+	}
 
 	log.Info().Str("server", serverURL).Str("creds", credsPath).Msg("agent starting")
 
@@ -371,3 +379,43 @@ func inventoryPeriod() time.Duration { return 4 * time.Hour }
 // The scheduler derives a stable per-device offset from this window, so the
 // fleet does not align on the hour even on a fresh rollout.
 func inventoryStaggerWindow() time.Duration { return 30 * time.Minute }
+
+func handleServiceAction(action, serverURL, credsPath string) {
+	cfg := service.DefaultConfig([]string{"-server", serverURL, "-creds", credsPath})
+	mgr, err := service.NewManager(cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("init service manager")
+	}
+
+	switch action {
+	case "install":
+		if err := mgr.Install(); err != nil {
+			log.Fatal().Err(err).Msg("install service failed")
+		}
+		fmt.Printf("Service '%s' successfully installed as OS daemon.\n", cfg.Name)
+	case "uninstall", "remove":
+		if err := mgr.Uninstall(); err != nil {
+			log.Fatal().Err(err).Msg("uninstall service failed")
+		}
+		fmt.Printf("Service '%s' successfully removed.\n", cfg.Name)
+	case "start":
+		if err := mgr.Start(); err != nil {
+			log.Fatal().Err(err).Msg("start service failed")
+		}
+		fmt.Printf("Service '%s' started successfully.\n", cfg.Name)
+	case "stop":
+		if err := mgr.Stop(); err != nil {
+			log.Fatal().Err(err).Msg("stop service failed")
+		}
+		fmt.Printf("Service '%s' stopped successfully.\n", cfg.Name)
+	case "status":
+		status, err := mgr.Status()
+		if err != nil {
+			fmt.Printf("Service '%s' status: %s (query error: %v)\n", cfg.Name, status, err)
+		} else {
+			fmt.Printf("Service '%s' status: %s\n", cfg.Name, status)
+		}
+	default:
+		log.Fatal().Str("action", action).Msg("unknown service action (use install, uninstall, start, stop, or status)")
+	}
+}

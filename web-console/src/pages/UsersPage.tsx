@@ -9,12 +9,14 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../services/api'
+import { useToast } from '../context/ToastContext'
 import type { UserDTO } from '../types/api'
 
 export const UsersPage: React.FC = () => {
   const [users, setUsers] = useState<UserDTO[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const toast = useToast()
 
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -61,14 +63,18 @@ export const UsersPage: React.FC = () => {
         password: newPassword,
         role: newRole,
       })
-      setMsg({ type: 'success', text: `User account '${newUsername}' created successfully.` })
+      const successText = `User account '${newUsername}' created successfully.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'User Created')
       setIsCreateModalOpen(false)
       setNewUsername('')
       setNewDisplayName('')
       setNewPassword('')
       loadUsers()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to create user' })
+      const errorText = err.message || 'Failed to create user'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Creation Failed')
     }
   }
 
@@ -87,11 +93,15 @@ export const UsersPage: React.FC = () => {
         display_name: editDisplayName,
         role: editRole,
       })
-      setMsg({ type: 'success', text: `User '${selectedUser.username}' updated.` })
+      const successText = `User '${selectedUser.username}' updated.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'User Updated')
       setIsEditModalOpen(false)
       loadUsers()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to update user' })
+      const errorText = err.message || 'Failed to update user'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Update Failed')
     }
   }
 
@@ -107,19 +117,25 @@ export const UsersPage: React.FC = () => {
     if (!selectedUser) return
     if (resetPassword !== confirmPassword) {
       setMsg({ type: 'error', text: 'Passwords do not match!' })
+      toast.warning('Passwords do not match', 'Validation Error')
       return
     }
     if (resetPassword.length < 8) {
       setMsg({ type: 'error', text: 'Password must be at least 8 characters long.' })
+      toast.warning('Password must be at least 8 characters long.', 'Validation Error')
       return
     }
 
     try {
       await api.adminResetPassword(selectedUser.id, resetPassword)
-      setMsg({ type: 'success', text: `Password for '${selectedUser.username}' updated successfully.` })
+      const successText = `Password for '${selectedUser.username}' updated successfully.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'Password Reset')
       setIsPasswordModalOpen(false)
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to reset password' })
+      const errorText = err.message || 'Failed to reset password'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Reset Failed')
     }
   }
 
@@ -127,10 +143,14 @@ export const UsersPage: React.FC = () => {
     if (!confirm(`Are you sure you want to deactivate user account '${u.username}'?`)) return
     try {
       await api.deactivateUser(u.id)
-      setMsg({ type: 'success', text: `User '${u.username}' deactivated.` })
+      const infoText = `User '${u.username}' deactivated.`
+      setMsg({ type: 'success', text: infoText })
+      toast.info(infoText, 'Account Deactivated')
       loadUsers()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to deactivate user' })
+      const errorText = err.message || 'Failed to deactivate user'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Deactivation Failed')
     }
   }
 

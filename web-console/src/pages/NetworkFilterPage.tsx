@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../services/api'
+import { useToast } from '../context/ToastContext'
 import type { DeviceFilterComplianceDTO, FilterRuleDTO } from '../types/api'
 
 export const NetworkFilterPage: React.FC = () => {
@@ -19,6 +20,7 @@ export const NetworkFilterPage: React.FC = () => {
   const [applying, setApplying] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const toast = useToast()
 
   const [newRule, setNewRule] = useState({
     target_type: 'all',
@@ -53,13 +55,17 @@ export const NetworkFilterPage: React.FC = () => {
     setApplying(true)
     try {
       const res = await api.applyFilterPolicies()
+      const successText = `Policy compiled successfully (Version: ${res.version.slice(0, 12)}..., ${res.rule_count} rules pushed live via WebSocket).`
       setMsg({
         type: 'success',
-        text: `Policy compiled successfully (Version: ${res.version.slice(0, 12)}..., ${res.rule_count} rules pushed live via WebSocket).`,
+        text: successText,
       })
+      toast.success(successText, 'Policy Pushed Live')
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to apply filter policies' })
+      const errorText = err.message || 'Failed to apply filter policies'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Deployment Failed')
     } finally {
       setApplying(false)
     }
@@ -69,7 +75,9 @@ export const NetworkFilterPage: React.FC = () => {
     e.preventDefault()
     try {
       await api.createFilterRule(newRule)
-      setMsg({ type: 'success', text: `Rule for '${newRule.domain_pattern}' added to policy draft.` })
+      const successText = `Rule for '${newRule.domain_pattern}' added to policy draft.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText)
       setIsModalOpen(false)
       setNewRule({
         target_type: 'all',
@@ -81,7 +89,9 @@ export const NetworkFilterPage: React.FC = () => {
       })
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to create rule' })
+      const errorText = err.message || 'Failed to create rule'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText)
     }
   }
 
@@ -89,10 +99,14 @@ export const NetworkFilterPage: React.FC = () => {
     if (!confirm(`Delete rule '${domain}'?`)) return
     try {
       await api.deleteFilterRule(id)
-      setMsg({ type: 'success', text: 'Rule deleted from draft. Remember to click "Deploy Policy" to push live.' })
+      const infoText = 'Rule deleted from draft. Remember to click "Deploy Policy" to push live.'
+      setMsg({ type: 'success', text: infoText })
+      toast.info(infoText)
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to delete rule' })
+      const errorText = err.message || 'Failed to delete rule'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText)
     }
   }
 

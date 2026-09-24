@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../services/api'
+import { useToast } from '../context/ToastContext'
 import type { DeviceDTO, PatchDetailDTO, PatchSummaryDTO } from '../types/api'
 
 export const PatchesPage: React.FC = () => {
@@ -23,6 +24,7 @@ export const PatchesPage: React.FC = () => {
   const [patchesLoading, setPatchesLoading] = useState(false)
   const [scanningId, setScanningId] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const toast = useToast()
 
   const loadData = async () => {
     try {
@@ -69,9 +71,12 @@ export const PatchesPage: React.FC = () => {
     try {
       await api.scanDevicePatches(deviceId)
       setActionMsg({ type: 'success', text: 'Patch scan dispatched to device' })
+      toast.info('Patch scan dispatched to device via live WebSocket', 'Scan Triggered')
       setTimeout(loadData, 2000)
     } catch (err: any) {
-      setActionMsg({ type: 'error', text: err.message || 'Scan failed' })
+      const errMsg = err.message || 'Scan failed'
+      setActionMsg({ type: 'error', text: errMsg })
+      toast.error(errMsg, 'Scan Failed')
     } finally {
       setScanningId(null)
     }
@@ -81,11 +86,15 @@ export const PatchesPage: React.FC = () => {
     try {
       const patchIds = devicePatches.map((p) => p.id)
       await api.installDevicePatches(deviceId, patchIds, 'suppress')
-      setActionMsg({ type: 'success', text: `Install dispatched for ${patchIds.length} patches` })
+      const msg = `Install dispatched for ${patchIds.length} patches`
+      setActionMsg({ type: 'success', text: msg })
+      toast.success(msg, 'Rollout Started')
       setSelectedDevice(null)
       setTimeout(loadData, 2000)
     } catch (err: any) {
-      setActionMsg({ type: 'error', text: err.message || 'Install failed' })
+      const errMsg = err.message || 'Install failed'
+      setActionMsg({ type: 'error', text: errMsg })
+      toast.error(errMsg, 'Install Failed')
     }
   }
 
