@@ -224,6 +224,24 @@ func main() {
 	// Background sweeper: mark devices whose agents went silent as offline.
 	go runOfflineSweep(database, hub, cfg.AgentOfflineAfter)
 
+	// Periodic online database backups. VACUUM INTO takes a consistent
+	// snapshot without stopping the server, so a failed backup is logged but
+	// never fatal.
+	backupCtx, stopBackups := context.WithCancel(context.Background())
+	defer stopBackups()
+	go db.StartBackupJob(backupCtx, database, db.BackupConfig{
+		Dir:      cfg.BackupDir,
+		Interval: cfg.BackupInterval,
+		Retain:   cfg.BackupRetain,
+		Prefix:   "endpoint-mgmt",
+	}, func(err error) {
+		log.Error().Err(err).Msg("database backup failed")
+	})
+	log.Info().Str("dir", cfg.BackupDir).
+		Dur("interval", cfg.BackupInterval).
+		Int("retain", cfg.BackupRetain).
+		Msg("scheduled online database backups")
+
 	go func() {
 		if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
 			log.Info().Str("addr", cfg.HTTPAddr).

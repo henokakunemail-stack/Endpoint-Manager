@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -26,14 +27,20 @@ type Config struct {
 	EnrollmentTTL     time.Duration
 	AgentOfflineAfter time.Duration // a device is offline if last_seen older than this
 
+	// Periodic online database backups (SQLite VACUUM INTO).
+	BackupDir      string
+	BackupInterval time.Duration
+	BackupRetain   int
+
 	LogLevel string // zerolog level: debug|info|warn|error
 }
 
 // Load reads configuration from environment variables with sane defaults.
 func Load() (Config, error) {
+	dbPath := getEnv("DB_PATH", "data/endpoint-mgmt.db")
 	cfg := Config{
 		HTTPAddr:          getEnv("HTTP_ADDR", ":8443"),
-		DBPath:            getEnv("DB_PATH", "data/endpoint-mgmt.db"),
+		DBPath:            dbPath,
 		JWTSecret:         getEnv("JWT_SECRET", ""),
 		AccessTokenTTL:    getDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:   getDuration("REFRESH_TOKEN_TTL", 24*7*time.Hour),
@@ -41,6 +48,9 @@ func Load() (Config, error) {
 		TLSKeyFile:        getEnv("TLS_KEY_FILE", ""),
 		EnrollmentTTL:     getDuration("ENROLLMENT_TTL", 30*time.Minute),
 		AgentOfflineAfter: getDuration("AGENT_OFFLINE_AFTER", 90*time.Second),
+		BackupDir:         getEnv("BACKUP_DIR", defaultBackupDir(dbPath)),
+		BackupInterval:    getDuration("BACKUP_INTERVAL", time.Hour),
+		BackupRetain:      getEnvInt("BACKUP_RETAIN", 24),
 		LogLevel:          getEnv("LOG_LEVEL", "info"),
 	}
 	if cfg.JWTSecret == "" {
@@ -52,6 +62,24 @@ func Load() (Config, error) {
 func getEnv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
+	}
+	return fallback
+}
+
+// defaultBackupDir places snapshots in a "backups" folder beside the database.
+func defaultBackupDir(dbPath string) string {
+	dir := "."
+	if filepath.Dir(dbPath) != "" {
+		dir = filepath.Dir(dbPath)
+	}
+	return filepath.Join(dir, "backups")
+}
+
+func getEnvInt(key string, fallback int) int {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return fallback
 }
