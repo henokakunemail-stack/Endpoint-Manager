@@ -186,6 +186,9 @@ func (h *Handler) handleDownloadRelease(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleAgentDownload(w http.ResponseWriter, r *http.Request) {
+	if _, ok := devicemgmt.AuthenticateAgent(w, r, h.deviceRepo); !ok {
+		return
+	}
 	id := chi.URLParam(r, "id")
 	rel, err := h.repo.GetRelease(r.Context(), id)
 	if err != nil {
@@ -432,6 +435,11 @@ func (h *Handler) handleGetDeviceUpdateStatus(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) handleAgentReport(w http.ResponseWriter, r *http.Request) {
+	// Without this, any client that can reach the port could mark a rollout
+	// successful and overwrite devices.agent_version for any device ID.
+	if _, ok := devicemgmt.AuthenticateAgent(w, r, h.deviceRepo); !ok {
+		return
+	}
 	deviceID := chi.URLParam(r, "id")
 	var req struct {
 		TaskID        string `json:"task_id"`

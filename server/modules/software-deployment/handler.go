@@ -20,6 +20,7 @@ import (
 	"github.com/endpoint-mgmt/server/core/auth"
 	"github.com/endpoint-mgmt/server/core/rbac"
 	"github.com/endpoint-mgmt/server/core/transport"
+	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
 )
 
 type HubDispatcher interface {
@@ -37,9 +38,13 @@ type Handler struct {
 	audit      AuditLogger
 	storageDir string
 	authMW     func(http.Handler) http.Handler
+	// devices authenticates agent-facing endpoints by the per-device secret.
+	// Agent endpoints have no user JWT, so without this any client that can
+	// reach the port could report progress for arbitrary tasks or pull packages.
+	devices devicemgmt.SecretLookup
 }
 
-func NewHandler(repo *Repository, hub HubDispatcher, auditLogger AuditLogger, storageDir string, authMW func(http.Handler) http.Handler) *Handler {
+func NewHandler(repo *Repository, hub HubDispatcher, auditLogger AuditLogger, storageDir string, authMW func(http.Handler) http.Handler, devices devicemgmt.SecretLookup) *Handler {
 	if storageDir == "" {
 		storageDir = "./data/packages"
 	}
@@ -50,6 +55,7 @@ func NewHandler(repo *Repository, hub HubDispatcher, auditLogger AuditLogger, st
 		audit:      auditLogger,
 		storageDir: storageDir,
 		authMW:     authMW,
+		devices:    devices,
 	}
 }
 
@@ -342,6 +348,9 @@ func (h *Handler) listTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) downloadPackage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := devicemgmt.AuthenticateAgent(w, r, h.devices); !ok {
+		return
+	}
 	pkgID := chi.URLParam(r, "id")
 	pkg, err := h.repo.GetPackage(r.Context(), pkgID)
 	if errors.Is(err, ErrNotFound) {
@@ -369,6 +378,9 @@ func (h *Handler) downloadPackage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) reportProgress(w http.ResponseWriter, r *http.Request) {
+	if _, ok := devicemgmt.AuthenticateAgent(w, r, h.devices); !ok {
+		return
+	}
 	taskID := chi.URLParam(r, "id")
 	var rep TaskProgressReport
 	if err := json.NewDecoder(r.Body).Decode(&rep); err != nil {

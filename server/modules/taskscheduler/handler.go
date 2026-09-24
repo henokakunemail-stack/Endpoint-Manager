@@ -10,6 +10,7 @@ import (
 
 	"github.com/endpoint-mgmt/server/core/auth"
 	"github.com/endpoint-mgmt/server/core/rbac"
+	devicemgmt "github.com/endpoint-mgmt/server/modules/device-management"
 )
 
 type AuditLogger interface {
@@ -21,14 +22,19 @@ type Handler struct {
 	scheduler      *Scheduler
 	audit          AuditLogger
 	authMiddleware func(http.Handler) http.Handler
+	// devices authenticates agent-facing endpoints by the per-device secret.
+	// Agent endpoints have no user JWT, so without this any client that can
+	// reach the port could write results for arbitrary scheduled tasks.
+	devices devicemgmt.SecretLookup
 }
 
-func NewHandler(repo *Repository, scheduler *Scheduler, audit AuditLogger, authMiddleware func(http.Handler) http.Handler) *Handler {
+func NewHandler(repo *Repository, scheduler *Scheduler, audit AuditLogger, authMiddleware func(http.Handler) http.Handler, devices devicemgmt.SecretLookup) *Handler {
 	return &Handler{
 		repo:           repo,
 		scheduler:      scheduler,
 		audit:          audit,
 		authMiddleware: authMiddleware,
+		devices:        devices,
 	}
 }
 
@@ -368,6 +374,9 @@ type taskResultReq struct {
 }
 
 func (h *Handler) reportTaskResult(w http.ResponseWriter, r *http.Request) {
+	if _, ok := devicemgmt.AuthenticateAgent(w, r, h.devices); !ok {
+		return
+	}
 	taskID := chi.URLParam(r, "id")
 	var req taskResultReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

@@ -65,6 +65,14 @@ func (e *Engine) ApplyUpdate(ctx context.Context, params UpdateParams) error {
 	_ = e.ReportProgress(ctx, params.TaskID, "downloading", params.TargetVersion, "")
 
 	fullDownloadURL := params.DownloadURL
+	if fullDownloadURL == "" {
+		// A rollout row with no artifact URL would otherwise index an empty
+		// string and panic, killing the whole agent (there is no recover() on
+		// the update goroutine). Fail the task cleanly instead.
+		err := errors.New("download_url is empty")
+		_ = e.ReportProgress(ctx, params.TaskID, "failed", params.TargetVersion, err.Error())
+		return err
+	}
 	if fullDownloadURL[0] == '/' {
 		fullDownloadURL = e.serverURL + fullDownloadURL
 	}

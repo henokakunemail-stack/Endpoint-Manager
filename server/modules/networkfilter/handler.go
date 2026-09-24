@@ -351,6 +351,9 @@ type agentFilterReportReq struct {
 }
 
 func (h *Handler) agentReportFilterState(w http.ResponseWriter, r *http.Request) {
+	if _, ok := devicemgmt.AuthenticateAgent(w, r, h.devices); !ok {
+		return
+	}
 	deviceID := chi.URLParam(r, "id")
 	var req agentFilterReportReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

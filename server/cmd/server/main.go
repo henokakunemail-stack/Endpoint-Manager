@@ -112,7 +112,7 @@ func main() {
 
 	// Fase 4: software package repository and deployment engine.
 	softRepo := softwaredeployment.NewRepository(database)
-	softH := softwaredeployment.NewHandler(softRepo, hub, &auditAdapter{db: database}, "./data/packages", jwtSvc.RequireAuth)
+	softH := softwaredeployment.NewHandler(softRepo, hub, &auditAdapter{db: database}, "./data/packages", jwtSvc.RequireAuth, deviceRepo)
 	softH.Register(r)
 
 	// Fase 5: remote execution & terminal routes.
@@ -143,7 +143,7 @@ func main() {
 	// Fase 10: task scheduler & script repository.
 	schedRepo := taskscheduler.NewRepository(database)
 	schedulerSvc := taskscheduler.NewScheduler(schedRepo, hub)
-	schedH := taskscheduler.NewHandler(schedRepo, schedulerSvc, &auditAdapter{db: database}, jwtSvc.RequireAuth)
+	schedH := taskscheduler.NewHandler(schedRepo, schedulerSvc, &auditAdapter{db: database}, jwtSvc.RequireAuth, deviceRepo)
 	schedH.Register(r)
 	schedulerSvc.StartBackgroundScheduler(30 * time.Second)
 

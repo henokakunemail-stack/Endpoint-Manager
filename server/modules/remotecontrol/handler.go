@@ -222,6 +222,13 @@ func (h *Handler) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Authenticate BEFORE the upgrade. Once the socket is hijacked there is no
+	// second chance to reject the peer, and a knowledge of a session ID alone
+	// would otherwise be enough to inject screen frames into an operator's view.
+	if _, ok := devicemgmt.AuthenticateAgent(w, r, h.devices); !ok {
+		return
+	}
+
 	ws, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("upgrade agent remote control ws")

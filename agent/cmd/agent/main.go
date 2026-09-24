@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -55,6 +56,24 @@ func main() {
 		return
 	}
 
+	// Under Windows, the SCM launches us with the arguments recorded at install
+	// time, so a launched service must call svc.Run or it exits immediately and
+	// the service never reaches RUNNING. runAgent blocks until shutdown, which
+	// is exactly the contract the SCM handler expects.
+	if service.RunAsService() {
+		if err := service.Serve("endpoint-agent", func() error {
+			runAgent(serverURL, enrollToken, credsPath, heartbeatSecs)
+			return nil
+		}); err != nil {
+			log.Error().Err(err).Msg("windows service exited with error")
+		}
+		return
+	}
+
+	runAgent(serverURL, enrollToken, credsPath, heartbeatSecs)
+}
+
+func runAgent(serverURL, enrollToken, credsPath string, heartbeatSecs int) {
 	log.Info().Str("server", serverURL).Str("creds", credsPath).Msg("agent starting")
 
 	creds, err := enrollment.Load(credsPath)
@@ -279,6 +298,7 @@ func main() {
 		}
 
 		go func() {
+			defer guardAgentGoroutine("networkfilter.apply")
 			count, err := filterEngine.ApplyBlockedDomains(p.BlockedDomains)
 			status := "synced"
 			errMsg := ""
@@ -304,6 +324,7 @@ func main() {
 		}
 
 		go func() {
+			defer guardAgentGoroutine("update.apply")
 			if err := updateEngine.ApplyUpdate(context.Background(), params); err != nil {
 				log.Error().Err(err).Str("task_id", params.TaskID).Msg("agent self-update failed")
 			} else {
@@ -353,6 +374,20 @@ func main() {
 		log.Error().Err(err).Msg("transport ended")
 	}
 	log.Info().Msg("agent stopped")
+}
+
+// guardAgentGoroutine keeps a panic in one background task from taking down the
+// whole agent. The agent is a managed OS service, so a crashed process silently
+// disappears from the fleet until the SCM restart policy kicks in; recovering
+// in place keeps the connection alive and records the failure instead.
+func guardAgentGoroutine(task string) {
+	if r := recover(); r != nil {
+		log.Error().
+			Str("task", task).
+			Str("panic", fmt.Sprintf("%v", r)).
+			Str("stack", string(debug.Stack())).
+			Msg("recovered panic in agent background task")
+	}
 }
 
 func envOr(key, fallback string) string {
