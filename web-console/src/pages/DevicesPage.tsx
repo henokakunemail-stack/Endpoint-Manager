@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { DeviceDetailModal } from '../components/DeviceDetailModal'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { api } from '../services/api'
 import type { DeviceDTO, DeviceListResponse } from '../types/api'
 
@@ -42,6 +43,7 @@ export const DevicesPage: React.FC<{
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null
   )
+  const toast = useToast()
 
   const fetchDevices = useCallback(async () => {
     setLoading(true)
@@ -80,27 +82,33 @@ export const DevicesPage: React.FC<{
     }
     try {
       await api.retireDevice(device.id)
+      const successText = `Device ${device.hostname} retired successfully.`
       setActionMsg({
         type: 'success',
-        text: `Device ${device.hostname} retired successfully.`,
+        text: successText,
       })
+      toast.success(successText, 'Device Retired')
       fetchDevices()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Retire failed'
       setActionMsg({ type: 'error', text: msg })
+      toast.error(msg, 'Retire Failed')
     }
   }
 
   const handlePing = async (device: DeviceDTO) => {
     try {
       const res = await api.pingDevice(device.id)
+      const successText = `Ping sent to ${device.hostname} (Command: ${res.command_id})`
       setActionMsg({
         type: 'success',
-        text: `Ping sent to ${device.hostname} (Command: ${res.command_id})`,
+        text: successText,
       })
+      toast.info(successText, 'Ping Dispatched')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Ping failed'
       setActionMsg({ type: 'error', text: msg })
+      toast.error(msg, 'Ping Failed')
     }
   }
 

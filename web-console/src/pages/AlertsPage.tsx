@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../services/api'
+import { useToast } from '../context/ToastContext'
 import type { AlertIncidentDTO, AlertRuleDTO } from '../types/api'
 
 export const AlertsPage: React.FC = () => {
@@ -17,6 +18,7 @@ export const AlertsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('open')
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const toast = useToast()
 
   const loadData = async () => {
     setLoading(true)
@@ -39,22 +41,34 @@ export const AlertsPage: React.FC = () => {
   }, [statusFilter])
 
   const handleAcknowledge = async (id: string) => {
+    const target = incidents.find((i) => i.id === id)
+    const label = target?.hostname || target?.device_id.slice(0, 10) || 'incident'
     try {
       await api.acknowledgeIncident(id)
-      setMsg({ type: 'success', text: 'Incident acknowledged' })
+      const successText = `Incident on '${label}' acknowledged and assigned for investigation.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'Incident Acknowledged')
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to acknowledge incident' })
+      const errorText = err.message || 'Failed to acknowledge incident'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Acknowledge Failed')
     }
   }
 
   const handleResolve = async (id: string) => {
+    const target = incidents.find((i) => i.id === id)
+    const label = target?.hostname || target?.device_id.slice(0, 10) || 'incident'
     try {
       await api.resolveIncident(id)
-      setMsg({ type: 'success', text: 'Incident resolved' })
+      const successText = `Incident on '${label}' marked as resolved.`
+      setMsg({ type: 'success', text: successText })
+      toast.success(successText, 'Incident Resolved')
       loadData()
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || 'Failed to resolve incident' })
+      const errorText = err.message || 'Failed to resolve incident'
+      setMsg({ type: 'error', text: errorText })
+      toast.error(errorText, 'Resolve Failed')
     }
   }
 
